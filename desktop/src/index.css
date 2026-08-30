@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/* 桌面小组件：整体透明，由组件卡片自带半透明背景 */
+html.widget-mode,
+body.widget-mode,
+.widget-mode #root {
+  background: transparent !important;
+}
+
+/* Tiptap editor basics */
+.ProseMirror {
+  outline: none;
+}
+.ProseMirror p {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+.ProseMirror h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+}
+.ProseMirror h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0.7em 0 0.35em;
+}
+.ProseMirror h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+.ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.15em;
+}
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+.ProseMirror blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 1em;
+  color: #475569;
+  margin: 0.5em 0;
+}
+.ProseMirror pre {
+  background: #f1f5f9;
+  border-radius: 0.5rem;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+}
+.ProseMirror code {
+  background: #f1f5f9;
+  padding: 0.15em 0.35em;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1em 0;
+}
+.ProseMirror img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+  margin: 0.5em 0;
+}
+.ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.ProseMirror th {
+  background: #f8fafc;
+  font-weight: 600;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* 剪藏预览：复用 ProseMirror 的排版风格（内容为服务端 sanitize 后的安全 HTML） */
+.clip-preview p { margin: 0.5em 0; }
+.clip-preview h1 { font-size: 1.5rem; font-weight: 700; margin: 0.8em 0 0.4em; }
+.clip-preview h2 { font-size: 1.25rem; font-weight: 600; margin: 0.7em 0 0.35em; }
+.clip-preview h3 { font-size: 1.125rem; font-weight: 600; margin: 0.6em 0 0.3em; }
+.clip-preview ul { list-style-type: disc; padding-left: 1.5em; margin: 0.5em 0; }
+.clip-preview ol { list-style-type: decimal; padding-left: 1.5em; margin: 0.5em 0; }
+.clip-preview blockquote { border-left: 3px solid #cbd5e1; padding-left: 1em; color: #475569; margin: 0.5em 0; }
+.clip-preview pre { background: #f1f5f9; border-radius: 0.5rem; padding: 0.75em 1em; margin: 0.5em 0; overflow-x: auto; }
+.clip-preview code { background: #f1f5f9; padding: 0.15em 0.35em; border-radius: 0.25rem; font-size: 0.875em; }
+.clip-preview pre code { background: none; padding: 0; }
+.clip-preview hr { border: none; border-top: 1px solid #e2e8f0; margin: 1em 0; }
+.clip-preview img { max-width: 100%; border-radius: 0.5rem; margin: 0.5em 0; }
+.clip-preview a { color: #4f46e5; text-decoration: underline; }
+.clip-preview table { width: 100%; border-collapse: collapse; margin: 0.5em 0; }
+.clip-preview th, .clip-preview td { border: 1px solid #e2e8f0; padding: 0.5em 0.75em; text-align: left; }
+.clip-preview th { background: #f8fafc; font-weight: 600; }

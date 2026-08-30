@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.local
+.env
+server/data/
+desktop/src-tauri/target/
+desktop/dist/
+.venv-pet/
+# 临时素材/生成文件
+08da8a034c799df706f4976b3532ef44.png
+b9d1bdd2a3a7e9416cd64e0f13ab5103.jpg
+desktop/src-tauri/gen/schemas/

@@ -1,0 +1,11 @@
+{
+  "name": "remainder",
+  "private": true,
+  "version": "0.1.0",
+  "description": "个人任务规划与提醒助手",
+  "scripts": {
+    "dev:server": "pnpm --filter server dev",
+    "dev:desktop": "pnpm --filter desktop dev",
+    "dev:tauri": "pnpm --filter desktop tauri dev"
+  }
+}

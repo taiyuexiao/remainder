@@ -1,0 +1,9 @@
+# 国内 crates.io 镜像（rsproxy.cn，字节跳动），解决直连 static.crates.io 超时
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+retry = 5

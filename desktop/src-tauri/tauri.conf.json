@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Remainder",
+  "version": "0.1.0",
+  "identifier": "com.remainder.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Remainder",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
+      },
+      {
+        "label": "widget",
+        "title": "Remainder Widget",
+        "url": "/index.html#/widget",
+        "width": 300,
+        "height": 440,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "focusable": false,
+        "skipTaskbar": true,
+        "resizable": true,
+        "shadow": false,
+        "x": 1600,
+        "y": 120
+      },
+      {
+        "label": "capture",
+        "title": "速记",
+        "url": "/index.html#/capture",
+        "width": 520,
+        "height": 200,
+        "center": true,
+        "visible": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
+      },
+      {
+        "label": "pet",
+        "title": "桌宠",
+        "url": "/index.html#/pet",
+        "width": 140,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
