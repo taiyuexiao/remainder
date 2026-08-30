@@ -12,6 +12,7 @@ import reportRoutes from './routes/report.js';
 import notificationRoutes from './routes/notifications.js';
 import documentRoutes from './routes/documents.js';
 import clipRoutes from './routes/clips.js';
+import docFolderRoutes from './routes/docFolders.js';
 import llmRoutes from './routes/llm.js';
 import { startScheduler } from './scheduler/index.js';
 
@@ -73,6 +74,7 @@ await app.register(reportRoutes);
 await app.register(notificationRoutes);
 await app.register(documentRoutes);
 await app.register(clipRoutes);
+await app.register(docFolderRoutes);
 await app.register(llmRoutes);
 
 startScheduler();

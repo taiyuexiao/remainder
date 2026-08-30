@@ -73,6 +73,9 @@ export function migrate() {
 
   // v4: 知识库升级——documents 元数据 + FTS5 trigram 全文搜索（M11.4）
   if ((db.pragma('user_version', { simple: true }) as number) < 4) migrateToV4();
+
+  // v5: 文档文件夹系统（M12）
+  if ((db.pragma('user_version', { simple: true }) as number) < 5) migrateToV5();
 }
 
 /**
@@ -185,4 +188,36 @@ function migrateToV4() {
   db.exec(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild')`);
 
   db.pragma('user_version = 4');
+}
+
+/** v5 迁移（M12）：文档文件夹系统 */
+function migrateToV5() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS doc_folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      parent_id TEXT REFERENCES doc_folders(id) ON DELETE CASCADE,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_doc_folders_parent ON doc_folders(parent_id);
+  `);
+
+  const cols = db.prepare('PRAGMA table_info(documents)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'folder_id')) {
+    db.exec('ALTER TABLE documents ADD COLUMN folder_id TEXT REFERENCES doc_folders(id) ON DELETE SET NULL');
+  }
+
+  const ts = new Date().toISOString();
+  // 默认根文件夹，存放所有历史未分类文档
+  db.prepare(
+    `INSERT OR IGNORE INTO doc_folders (id, name, parent_id, sort_order, created_at, updated_at)
+     VALUES (?, ?, NULL, 0, ?, ?)`,
+  ).run('default', '默认文件夹', ts, ts);
+
+  // 把现有文档全部归入默认文件夹
+  db.prepare('UPDATE documents SET folder_id = ? WHERE folder_id IS NULL').run('default');
+
+  db.pragma('user_version = 5');
 }

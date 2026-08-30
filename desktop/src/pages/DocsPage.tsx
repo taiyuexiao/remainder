@@ -9,7 +9,7 @@ import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
-import { api, API_BASE, type Document, type DocumentInput } from '../api/client';
+import { api, API_BASE, type Document, type DocumentInput, type DocFolder } from '../api/client';
 
 const emptyDocContent = JSON.stringify({
   type: 'doc',
@@ -21,8 +21,6 @@ function parseContent(content: string | undefined): object | string {
   try {
     return JSON.parse(content);
   } catch {
-    // 剪藏转入的文档是 HTML：Tiptap 可直接解析 HTML 字符串
-    // 兜底：旧转换文档的图片是相对路径，补成绝对路径（webview 源是 tauri.localhost 会 404）
     return content.replaceAll('src="/api/', `src="${API_BASE}/api/`);
   }
 }
@@ -36,7 +34,6 @@ function formatTime(iso: string) {
   });
 }
 
-/** 来源链接域名（无来源返回空） */
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -45,218 +42,561 @@ function hostOf(url: string): string {
   }
 }
 
-export default function DocsPage() {
-  const [docs, setDocs] = useState<Document[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [weeklyLoading, setWeeklyLoading] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Document[] | null>(null); // null = 未搜索，显示全部
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+// 把平铺 folder 数组组装成树
+function buildTree(folders: DocFolder[]): (DocFolder & { children: ReturnType<typeof buildTree> })[] {
+  const map = new Map<string, DocFolder & { children: any[] }>();
+  folders.forEach((f) => map.set(f.id, { ...f, children: [] }));
+  const roots: (DocFolder & { children: any[] })[] = [];
+  folders.forEach((f) => {
+    if (f.parent_id) {
+      const parent = map.get(f.parent_id);
+      if (parent) parent.children.push(map.get(f.id)!);
+    } else {
+      roots.push(map.get(f.id)!);
+    }
+  });
+  roots.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+  return roots;
+}
 
-  const reload = useCallback(async () => {
+function folderPath(folders: DocFolder[], id: string): DocFolder[] {
+  const map = new Map(folders.map((f) => [f.id, f]));
+  const path: DocFolder[] = [];
+  let cur = map.get(id);
+  while (cur) {
+    path.unshift(cur);
+    cur = cur.parent_id ? map.get(cur.parent_id) : undefined;
+  }
+  return path;
+}
+
+export default function DocsPage() {
+  const [folders, setFolders] = useState<DocFolder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [childFolders, setChildFolders] = useState<DocFolder[]>([]);
+  const [docs, setDocs] = useState<Document[]>([]);
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const [creatingDoc, setCreatingDoc] = useState(false);
+  const [organizeOpen, setOrganizeOpen] = useState(false);
+
+  const loadFolders = useCallback(async () => {
     try {
-      const list = await api.listDocuments();
-      setDocs(list);
+      const list = await api.listDocFolders();
+      setFolders(list);
       setError('');
     } catch (e) {
-      setError(`后端连接失败：${(e as Error).message}`);
+      setError(`加载文件夹失败：${(e as Error).message}`);
+    }
+  }, []);
+
+  const loadContents = useCallback(async (folderId: string) => {
+    try {
+      const data = await api.folderContents(folderId);
+      setChildFolders(data.folders);
+      setDocs(data.docs as Document[]);
+      setError('');
+    } catch (e) {
+      setError(`加载内容失败：${(e as Error).message}`);
     }
   }, []);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    loadFolders();
+  }, [loadFolders]);
 
-  // 搜索框防抖 300ms（M11.4）；清空恢复全部列表
   useEffect(() => {
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    const q = query.trim();
-    if (!q) {
-      setResults(null);
+    if (currentFolderId) {
+      loadContents(currentFolderId);
+    } else {
+      setChildFolders([]);
+      setDocs([]);
+    }
+  }, [currentFolderId, loadContents]);
+
+  const tree = useMemo(() => buildTree(folders), [folders]);
+
+  const selectFolder = (id: string) => {
+    setSelectedFolderId(id);
+    setCurrentFolderId(id);
+    setEditingDocId(null);
+  };
+
+  const enterFolder = (id: string) => {
+    setCurrentFolderId(id);
+    setEditingDocId(null);
+  };
+
+  const selectDoc = (id: string) => {
+    setEditingDocId(id);
+  };
+
+  const backToList = () => {
+    setEditingDocId(null);
+  };
+
+  const createFolder = async (parentId: string | null) => {
+    const name = window.prompt(parentId ? '新建子文件夹名称' : '新建文件夹名称');
+    if (!name?.trim()) return;
+    try {
+      await api.createDocFolder({ name: name.trim(), parentId });
+      await loadFolders();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const createDoc = async (folderId: string | null) => {
+    const target = folderId ?? selectedFolderId ?? currentFolderId;
+    if (!target) {
+      alert('请先选择一个文件夹');
       return;
     }
-    searchTimer.current = setTimeout(async () => {
-      try {
-        // 搜索结果是轻行（无 content），选中时会从 docs 补全；不在 docs 里则直接展示
-        setResults((await api.searchDocuments(q)) as Document[]);
-      } catch {
-        setResults([]);
-      }
-    }, 300);
-    return () => {
-      if (searchTimer.current) clearTimeout(searchTimer.current);
-    };
-  }, [query]);
-
-  // 生成本周周报（M8.3）：LLM 生成 → 落 documents → 自动打开
-  const weeklyReport = async () => {
-    setWeeklyLoading(true);
+    setCreatingDoc(true);
     try {
-      const doc = await api.generateWeeklyReport();
-      await reload();
-      setSelectedId(doc.id);
+      const doc = await api.createDocument({ title: '未命名文档', folderId: target });
+      await loadContents(target);
+      setEditingDocId(doc.id);
     } catch (e) {
-      alert(`${(e as Error).message}`);
+      alert((e as Error).message);
     } finally {
-      setWeeklyLoading(false);
+      setCreatingDoc(false);
     }
   };
 
-  const shown = results ?? docs;
-
-  const selected = useMemo(
-    () => docs.find((d) => d.id === selectedId) ?? null,
-    [docs, selectedId],
-  );
-
-  // 搜索结果可能是轻行（无 content）；选中时优先用完整行，不在缓存则拉单篇
-  const selectDoc = async (id: string) => {
-    if (!docs.some((d) => d.id === id)) {
-      try {
-        const full = await api.getDocument(id);
-        setDocs((prev) => [full, ...prev]);
-      } catch {
-        /* 忽略 */
+  const deleteFolder = async (id: string) => {
+    if (!confirm('确认删除该文件夹？子文件夹和文档会移入默认文件夹。')) return;
+    try {
+      await api.deleteDocFolder(id);
+      if (selectedFolderId === id) {
+        setSelectedFolderId(null);
+        setCurrentFolderId(null);
       }
-    }
-    setSelectedId(id);
-  };
-
-  const createDoc = async () => {
-    try {
-      const doc = await api.createDocument({ title: '未命名文档' });
-      await reload();
-      setSelectedId(doc.id);
+      await loadFolders();
+      if (currentFolderId && currentFolderId !== id) await loadContents(currentFolderId);
     } catch (e) {
       alert((e as Error).message);
     }
   };
 
-  const deleteDoc = async (id: string) => {
-    if (!confirm('确认删除该文档？')) return;
+  const renameFolder = async (id: string, current: string) => {
+    const name = window.prompt('重命名文件夹', current);
+    if (!name?.trim() || name.trim() === current) return;
     try {
-      await api.deleteDocument(id);
-      if (selectedId === id) setSelectedId(null);
-      await reload();
+      await api.updateDocFolder(id, { name: name.trim() });
+      await loadFolders();
+      if (currentFolderId) await loadContents(currentFolderId);
     } catch (e) {
       alert((e as Error).message);
     }
+  };
+
+  const refresh = async () => {
+    await loadFolders();
+    if (currentFolderId) await loadContents(currentFolderId);
   };
 
   return (
     <div className="h-full flex">
-      {/* 左侧文档列表 */}
-      <aside className="w-60 shrink-0 bg-white border-r border-slate-200 flex flex-col">
-        <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="font-semibold text-sm">文档</h2>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={weeklyReport}
-              disabled={weeklyLoading}
-              title="聚合本周项目/子任务/跟进数据，LLM 生成周报文档"
-              className="text-xs rounded-md bg-emerald-50 text-emerald-700 px-2 py-1.5 hover:bg-emerald-100 disabled:opacity-40"
-            >
-              {weeklyLoading ? '生成中…' : '📊 周报'}
-            </button>
-            <button
-              onClick={createDoc}
-              className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
-            >
-              新建
-            </button>
-          </div>
-        </header>
-        <div className="px-3 py-2 border-b border-slate-100">
-          <input
-            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            placeholder="搜索文档（标题/正文/标签）…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+      {/* 主栏目：文件夹树 */}
+      <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
+        <header className="px-3 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="font-semibold text-sm">文件夹</h2>
+          <NewDropdown
+            label="+"
+            onNewFolder={() => createFolder(null)}
+            onNewDoc={() => createDoc(null)}
+            docDisabled={!selectedFolderId && !currentFolderId}
           />
-        </div>
-        {error && <div className="px-4 py-2 text-xs text-red-500 bg-red-50">{error}</div>}
+        </header>
+        {error && <div className="px-3 py-2 text-xs text-red-500 bg-red-50">{error}</div>}
         <div className="flex-1 overflow-y-auto py-2">
-          {shown.map((d) => (
-            <div
-              key={d.id}
-              onClick={() => selectDoc(d.id)}
-              className={`group mx-2 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-start gap-2 transition-colors ${
-                selectedId === d.id
-                  ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <span className="text-sm mt-0.5">{d.clip_id ? '📥' : '📝'}</span>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm truncate ${selectedId === d.id ? 'font-medium' : ''}`}>{d.title || '未命名'}</p>
-                {d.summary && <p className="text-[10px] text-slate-400 truncate mt-0.5">{d.summary}</p>}
-                <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5">
-                  <span>{formatTime(d.updated_at)}</span>
-                  {d.tags && <span className="text-slate-300 truncate">{d.tags}</span>}
-                  {d.source_url && hostOf(d.source_url) && (
-                    <a
-                      href={d.source_url}
-                      target="_blank"
-                      rel="noopener"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-indigo-400 hover:underline truncate"
-                    >
-                      {hostOf(d.source_url)}
-                    </a>
-                  )}
-                </p>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteDoc(d.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500 px-1"
-                title="删除"
-              >
-                🗑
-              </button>
-            </div>
-          ))}
-          {!shown.length && !error && (
-            <p className="text-xs text-slate-400 text-center pt-10">
-              {results ? '没有匹配的文档' : '暂无文档，点击右上角新建'}
-            </p>
-          )}
+          <FolderTree
+            nodes={tree}
+            selectedId={selectedFolderId}
+            onSelect={selectFolder}
+            onCreateFolder={createFolder}
+            onRename={renameFolder}
+            onDelete={deleteFolder}
+          />
         </div>
       </aside>
 
-      {/* 主编辑区 */}
+      {/* 副栏目：内容区 / 编辑器 */}
       <main className="flex-1 min-w-0 bg-white flex flex-col">
-        {selected ? (
-          <DocEditor key={selected.id} doc={selected} onChange={reload} saving={saving} setSaving={setSaving} />
+        {editingDocId ? (
+          <DocEditorShell
+            docId={editingDocId}
+            folders={folders}
+            onBack={backToList}
+            onChange={refresh}
+          />
+        ) : currentFolderId ? (
+          <FolderContents
+            folders={folders}
+            currentId={currentFolderId}
+            childFolders={childFolders}
+            docs={docs}
+            onEnterFolder={enterFolder}
+            onSelectDoc={selectDoc}
+            onCreateFolder={() => createFolder(currentFolderId)}
+            onCreateDoc={() => createDoc(currentFolderId)}
+            onOrganize={() => setOrganizeOpen(true)}
+            creatingDoc={creatingDoc}
+          />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-300">
-            <div className="text-5xl mb-4">📝</div>
-            <p className="text-sm">选择或新建文档开始编辑</p>
+            <div className="text-5xl mb-4">📁</div>
+            <p className="text-sm">选择一个文件夹开始</p>
           </div>
         )}
       </main>
+
+      {organizeOpen && currentFolderId && (
+        <OrganizeModal
+          folderId={currentFolderId}
+          onClose={() => setOrganizeOpen(false)}
+          onApplied={refresh}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewDropdown({
+  label,
+  onNewFolder,
+  onNewDoc,
+  docDisabled,
+}: {
+  label: string;
+  onNewFolder: () => void;
+  onNewDoc: () => void;
+  docDisabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-28 rounded-lg bg-white shadow-lg border border-slate-200 py-1 z-20 text-xs">
+          <button
+            onClick={() => {
+              setOpen(false);
+              onNewFolder();
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+          >
+            <span>📁</span> 文件夹
+          </button>
+          <button
+            onClick={() => {
+              setOpen(false);
+              onNewDoc();
+            }}
+            disabled={docDisabled}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white flex items-center gap-2"
+          >
+            <span>📝</span> 文档
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderTree({
+  nodes,
+  selectedId,
+  onSelect,
+  onCreateFolder,
+  onRename,
+  onDelete,
+}: {
+  nodes: (DocFolder & { children: any[] })[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onCreateFolder: (parentId: string) => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="px-2 space-y-0.5">
+      {nodes.map((node) => (
+        <FolderNode
+          key={node.id}
+          node={node}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onCreateFolder={onCreateFolder}
+          onRename={onRename}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FolderNode({
+  node,
+  selectedId,
+  onSelect,
+  onCreateFolder,
+  onRename,
+  onDelete,
+}: {
+  node: DocFolder & { children: any[] };
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onCreateFolder: (parentId: string) => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children.length > 0;
+  return (
+    <div>
+      <div
+        className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
+          selectedId === node.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
+        }`}
+        onClick={() => onSelect(node.id)}
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (hasChildren) setExpanded(!expanded);
+          }}
+          className={`w-4 text-[10px] text-slate-400 transition-transform ${expanded ? '' : '-rotate-90'} ${
+            hasChildren ? '' : 'invisible'
+          }`}
+        >
+          ▼
+        </button>
+        <span className="text-sm">📁</span>
+        <span className="flex-1 truncate">{node.name}</span>
+        <div className="hidden group-hover:flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateFolder(node.id);
+            }}
+            title="新建子文件夹"
+            className="text-slate-400 hover:text-indigo-600 px-1"
+          >
+            +
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRename(node.id, node.name);
+            }}
+            title="重命名"
+            className="text-slate-400 hover:text-indigo-600 px-1"
+          >
+            ✎
+          </button>
+          {node.id !== 'default' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(node.id);
+              }}
+              title="删除"
+              className="text-slate-400 hover:text-red-500 px-1"
+            >
+              🗑
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && hasChildren && (
+        <div className="pl-4 border-l border-slate-100 ml-3 mt-0.5 space-y-0.5">
+          <FolderTree
+            nodes={node.children}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onCreateFolder={onCreateFolder}
+            onRename={onRename}
+            onDelete={onDelete}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderContents({
+  folders,
+  currentId,
+  childFolders,
+  docs,
+  onEnterFolder,
+  onSelectDoc,
+  onCreateFolder,
+  onCreateDoc,
+  onOrganize,
+  creatingDoc,
+}: {
+  folders: DocFolder[];
+  currentId: string;
+  childFolders: DocFolder[];
+  docs: Document[];
+  onEnterFolder: (id: string) => void;
+  onSelectDoc: (id: string) => void;
+  onCreateFolder: () => void;
+  onCreateDoc: () => void;
+  onOrganize: () => void;
+  creatingDoc: boolean;
+}) {
+  const path = useMemo(() => folderPath(folders, currentId), [folders, currentId]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1 text-sm text-slate-600 min-w-0">
+          {path.map((p, i) => (
+            <span key={p.id} className="flex items-center gap-1 min-w-0">
+              {i > 0 && <span className="text-slate-300">/</span>}
+              <button
+                onClick={() => onEnterFolder(p.id)}
+                className={`truncate hover:text-indigo-600 ${i === path.length - 1 ? 'font-medium text-slate-800' : ''}`}
+              >
+                {p.name}
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onOrganize}
+            className="text-xs rounded-md bg-violet-50 text-violet-700 px-2.5 py-1.5 hover:bg-violet-100"
+          >
+            ✨ AI 整理
+          </button>
+          <NewDropdown label="+ 新建" onNewFolder={onCreateFolder} onNewDoc={onCreateDoc} />
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto py-2">
+        {creatingDoc && (
+          <div className="mx-3 mb-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">创建文档中…</div>
+        )}
+
+        {childFolders.length === 0 && docs.length === 0 && (
+          <div className="h-40 flex flex-col items-center justify-center text-slate-300 text-sm">
+            <span className="text-3xl mb-2">🍃</span>
+            当前文件夹为空
+          </div>
+        )}
+
+        {childFolders.map((f) => (
+          <div
+            key={f.id}
+            onClick={() => onEnterFolder(f.id)}
+            className="mx-3 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-center gap-2 text-slate-700 hover:bg-slate-50 border border-transparent hover:border-slate-100"
+          >
+            <span>📁</span>
+            <span className="text-sm font-medium">{f.name}</span>
+          </div>
+        ))}
+
+        {docs.map((d) => (
+          <div
+            key={d.id}
+            onClick={() => onSelectDoc(d.id)}
+            className="mx-3 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-start gap-2 text-slate-600 hover:bg-slate-50 border border-transparent hover:border-slate-100"
+          >
+            <span className="mt-0.5">{d.clip_id ? '📥' : '📝'}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm truncate">{d.title || '未命名'}</p>
+              {d.summary && <p className="text-[10px] text-slate-400 truncate mt-0.5">{d.summary}</p>}
+              <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
+                <span>{formatTime(d.updated_at)}</span>
+                {d.tags && <span className="text-slate-300 truncate">{d.tags}</span>}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DocEditorShell({
+  docId,
+  folders,
+  onBack,
+  onChange,
+}: {
+  docId: string;
+  folders: DocFolder[];
+  onBack: () => void;
+  onChange: () => void;
+}) {
+  const [doc, setDoc] = useState<Document | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api
+      .getDocument(docId)
+      .then((d) => {
+        if (active) setDoc(d);
+      })
+      .catch((e) => alert((e as Error).message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [docId]);
+
+  if (loading) return <div className="h-full flex items-center justify-center text-slate-400 text-sm">加载中…</div>;
+  if (!doc) return <div className="h-full flex items-center justify-center text-slate-400 text-sm">文档不存在</div>;
+  return (
+    <div className="h-full flex flex-col">
+      <header className="px-4 py-3 border-b border-slate-200 flex items-center gap-3">
+        <button onClick={onBack} className="text-xs rounded-md bg-slate-100 text-slate-600 px-2.5 py-1.5 hover:bg-slate-200">
+          ← 返回
+        </button>
+        <span className="text-sm text-slate-400">编辑文档</span>
+      </header>
+      <DocEditor doc={doc} folders={folders} onChange={onChange} />
     </div>
   );
 }
 
 function DocEditor({
   doc,
+  folders,
   onChange,
-  saving,
-  setSaving,
 }: {
   doc: Document;
+  folders: DocFolder[];
   onChange: () => void;
-  saving: boolean;
-  setSaving: (v: boolean) => void;
 }) {
   const [title, setTitle] = useState(doc.title);
   const [tags, setTags] = useState(doc.tags ?? '');
   const [lastSaved, setLastSaved] = useState(doc.updated_at);
+  const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const editor = useEditor({
@@ -276,7 +616,6 @@ function DocEditor({
       attributes: {
         class: 'focus:outline-none min-h-[20rem] px-8 py-6',
       },
-      // 粘贴图片文件 → 转 base64 data URL 内联（不做文件服务器）
       handlePaste: (_view, event) => {
         const items = event.clipboardData?.items;
         if (!items) return false;
@@ -311,7 +650,7 @@ function DocEditor({
         setSaving(false);
       }
     },
-    [doc.id, onChange, setSaving],
+    [doc.id, onChange],
   );
 
   const scheduleSave = useCallback(
@@ -339,6 +678,15 @@ function DocEditor({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
+
+  const moveDoc = async (folderId: string) => {
+    try {
+      await api.updateDocument(doc.id, { folderId });
+      onChange();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   return (
     <>
@@ -373,6 +721,17 @@ function DocEditor({
               来源：{hostOf(doc.source_url)}
             </a>
           )}
+          <select
+            value={doc.folder_id ?? ''}
+            onChange={(e) => moveDoc(e.target.value)}
+            className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 focus:outline-none"
+          >
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
         </div>
         <EditorContent editor={editor} />
       </div>
@@ -390,7 +749,6 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
 
   const { from, to, empty } = editor.state.selection;
 
-  // ✨ 润色选中文本（M8.3）：无选中禁用；LLM 未配置时后端返回明确错误，alert 提示
   const polish = async () => {
     if (empty || polishing) return;
     const text = editor.state.doc.textBetween(from, to, ' ');
@@ -506,6 +864,142 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
       >
         {polishing ? '润色中…' : '✨ 润色'}
       </button>
+    </div>
+  );
+}
+
+function OrganizeModal({
+  folderId,
+  onClose,
+  onApplied,
+}: {
+  folderId: string;
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<{ name: string; docIds: string[] }[]>([]);
+  const [docs, setDocs] = useState<{ id: string; title: string; summary: string }[]>([]);
+  const [docToFolder, setDocToFolder] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api
+      .previewAutoOrganize(folderId, false)
+      .then((res) => {
+        if (!active) return;
+        setSuggestions(res.suggestions);
+        setDocs(res.docs);
+        const map: Record<string, string> = {};
+        res.suggestions.forEach((s) => {
+          s.docIds.forEach((id) => {
+            map[id] = s.name;
+          });
+        });
+        setDocToFolder(map);
+      })
+      .catch((e) => alert((e as Error).message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [folderId]);
+
+  const allNames = useMemo(
+    () => Array.from(new Set([...suggestions.map((s) => s.name), ...Object.values(docToFolder)])),
+    [suggestions, docToFolder],
+  );
+
+  const updateDocFolder = (docId: string, name: string) => {
+    setDocToFolder((prev) => ({ ...prev, [docId]: name }));
+  };
+
+  const apply = async () => {
+    const groups: Record<string, string[]> = {};
+    docs.forEach((d) => {
+      const name = docToFolder[d.id];
+      if (!name) return;
+      if (!groups[name]) groups[name] = [];
+      groups[name].push(d.id);
+    });
+    const payload = Object.entries(groups).map(([name, docIds]) => ({ name, docIds }));
+    try {
+      await api.applyAutoOrganize(payload);
+      onApplied();
+      onClose();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="w-[720px] max-h-[80vh] bg-white rounded-2xl shadow-xl flex flex-col">
+        <header className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="font-semibold text-sm">AI 整理归档预览</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            ✕
+          </button>
+        </header>
+
+        {loading ? (
+          <div className="p-10 text-center text-sm text-slate-400">AI 分析中…</div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-hidden flex">
+              <div className="w-1/3 border-r border-slate-200 p-3 overflow-y-auto">
+                <p className="text-xs text-slate-400 mb-2">建议文件夹</p>
+                {allNames.map((name) => (
+                  <div key={name} className="flex items-center gap-2 text-sm text-slate-700 py-1">
+                    <span>📁</span>
+                    <span className="truncate">{name}</span>
+                  </div>
+                ))}
+                {allNames.length === 0 && <p className="text-xs text-slate-400">无需整理</p>}
+              </div>
+              <div className="flex-1 p-3 overflow-y-auto">
+                <p className="text-xs text-slate-400 mb-2">待归档文档</p>
+                <div className="space-y-2">
+                  {docs.map((d) => (
+                    <div key={d.id} className="rounded-lg border border-slate-100 p-2.5">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm text-slate-700 truncate">{d.title}</span>
+                        <select
+                          value={docToFolder[d.id] ?? ''}
+                          onChange={(e) => updateDocFolder(d.id, e.target.value)}
+                          className="text-xs border border-slate-200 rounded-md px-2 py-1"
+                        >
+                          <option value="">不移动</option>
+                          {allNames.map((name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {d.summary && <p className="text-[10px] text-slate-400 truncate">{d.summary}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <footer className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button onClick={onClose} className="text-xs rounded-md bg-slate-100 text-slate-600 px-3 py-1.5 hover:bg-slate-200">
+                取消
+              </button>
+              <button
+                onClick={apply}
+                className="text-xs rounded-md bg-violet-600 text-white px-3 py-1.5 hover:bg-violet-700"
+              >
+                应用
+              </button>
+            </footer>
+          </>
+        )}
+      </div>
     </div>
   );
 }

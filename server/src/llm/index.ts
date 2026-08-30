@@ -1,6 +1,7 @@
 import { db } from '../db/connection.js';
 import { config } from '../config.js';
 import type { TodayView } from '../routes/helpers.js';
+import { stripToText } from '../services/docSearch.js';
 
 interface LlmConfig {
   enabled: boolean;
@@ -117,4 +118,65 @@ export async function generateDailySummary(today: TodayView): Promise<string | n
     ),
     0.7,
   );
+}
+
+/** 文档自动归档：单条输入 */
+export interface OrganizeDocInput {
+  id: string;
+  title: string;
+  summary: string;
+  text: string;
+}
+
+/** 文档自动归档：建议分类 */
+export interface OrganizeSuggestion {
+  name: string;
+  docIds: string[];
+}
+
+/** LLM 预览归档建议；未配置 LLM 返回 null */
+export async function previewAutoOrganize(
+  docs: OrganizeDocInput[],
+  existingFolders: string[],
+): Promise<OrganizeSuggestion[] | null> {
+  if (!docs.length) return [];
+  const result = await chat(
+    '你是一位文档管理员。请根据文档标题、摘要和正文片段，把它们归类到合适的文件夹。' +
+      '要求：\n' +
+      '1. 文件夹名用中文，简洁（2-6 字）\n' +
+      '2. 主题相近的文档归到一起\n' +
+      '3. 如果是周报/日报，单独归到「周报」\n' +
+      '4. 如果是剪藏的技术文章，可归到「技术剪藏」\n' +
+      '5. 优先使用现有文件夹名，需要新建时再创新名字\n' +
+      '6. 返回严格 JSON，不要 markdown 代码块：{ "folders": [{ "name": "...", "docIds": ["..."] }] }\n' +
+      `现有文件夹：${existingFolders.join('、') || '无'}。`,
+    `待分类文档：\n${docs
+      .map(
+        (d) =>
+          `ID:${d.id}\n标题：${d.title}\n摘要：${d.summary || '无'}\n正文：${d.text.slice(0, 800)}`,
+      )
+      .join('\n---\n')}`,
+    0.3,
+  );
+  if (!result) return null;
+  try {
+    const parsed = JSON.parse(result.replace(/^```json\s*|\s*```$/g, '')) as {
+      folders?: { name?: string; docIds?: string[] }[];
+    };
+    return (parsed.folders ?? [])
+      .filter((f) => f.name && Array.isArray(f.docIds))
+      .map((f) => ({ name: f.name!.trim(), docIds: f.docIds! }));
+  } catch {
+    throw new Error('LLM 返回的归档建议格式无法解析');
+  }
+}
+
+/** 从 documents 表提取用于归档的文本片段 */
+export function getDocTextForOrganize(content: string): string {
+  try {
+    const json = JSON.parse(content);
+    return stripToText(JSON.stringify(json));
+  } catch {
+    return stripToText(content);
+  }
 }

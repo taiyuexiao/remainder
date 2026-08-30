@@ -103,6 +103,7 @@ export interface Document {
   source_url: string;
   summary: string;
   clip_id: string | null;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
   /** 搜索结果行才有 */
@@ -115,6 +116,16 @@ export interface DocumentInput {
   tags?: string;
   source_url?: string;
   summary?: string;
+  folderId?: string | null;
+}
+
+export interface DocFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 /** 搜索结果行（无 content 的轻行） */
@@ -208,12 +219,30 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ value }),
     }),
-  listDocuments: () => req<Document[]>('/api/documents'),
+  listDocuments: (folderId?: string) =>
+    req<Document[]>(`/api/documents${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ''}`),
   searchDocuments: (q: string) =>
     req<DocumentSearchRow[]>(`/api/documents/search?q=${encodeURIComponent(q)}`),
   getDocument: (id: string) => req<Document>(`/api/documents/${id}`),
   createDocument: (b: DocumentInput) =>
     req<Document>('/api/documents', { method: 'POST', body: JSON.stringify(b) }),
+  listDocFolders: () => req<DocFolder[]>('/api/doc-folders'),
+  createDocFolder: (b: { name: string; parentId?: string | null }) =>
+    req<DocFolder>('/api/doc-folders', { method: 'POST', body: JSON.stringify(b) }),
+  updateDocFolder: (id: string, b: Partial<{ name: string; parentId: string | null; sortOrder: number }>) =>
+    req<DocFolder>(`/api/doc-folders/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteDocFolder: (id: string) => req<{ deleted: string }>(`/api/doc-folders/${id}`, { method: 'DELETE' }),
+  folderContents: (id: string) => req<{ folders: DocFolder[]; docs: Document[] }>(`/api/doc-folders/${id}/contents`),
+  previewAutoOrganize: (folderId?: string, onlyUnorganized?: boolean) =>
+    req<{ suggestions: { name: string; docIds: string[] }[]; docs: { id: string; title: string; summary: string }[] }>(
+      '/api/doc-folders/auto-organize/preview',
+      { method: 'POST', body: JSON.stringify({ folderId, onlyUnorganized }) },
+    ),
+  applyAutoOrganize: (suggestions: { name: string; docIds: string[] }[]) =>
+    req<{ applied: boolean }>('/api/doc-folders/auto-organize/apply', {
+      method: 'POST',
+      body: JSON.stringify({ suggestions }),
+    }),
   updateDocument: (id: string, b: Partial<DocumentInput>) =>
     req<Document>(`/api/documents/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteDocument: (id: string) => req<{ deleted: string }>(`/api/documents/${id}`, { method: 'DELETE' }),

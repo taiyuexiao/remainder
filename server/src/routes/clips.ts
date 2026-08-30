@@ -92,14 +92,14 @@ export default async function clipRoutes(app: FastifyInstance) {
     );
     // 知识库元数据（M11.4）：来源链接/摘要/clip 关联 + 搜索用纯文本
     db.prepare(
-      `INSERT INTO documents (id,title,content,content_text,source_url,summary,clip_id,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO documents (id,title,content,content_text,source_url,summary,clip_id,folder_id,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
     ).run(docId, (b.title ?? clip.title).trim() || clip.title, contentHtml,
-      stripToText(contentHtml), clip.url, clip.excerpt, clip.id, ts, ts);
+      stripToText(contentHtml), clip.url, clip.excerpt, clip.id, 'default', ts, ts);
     db.prepare("UPDATE clips SET status='converted', converted_doc_id=? WHERE id=?").run(docId, id);
     rebuildDocsFts();
     return reply.code(201).send(
-      db.prepare('SELECT id,title,content,tags,source_url,summary,clip_id,created_at,updated_at FROM documents WHERE id = ?').get(docId),
+      db.prepare('SELECT id,title,content,tags,source_url,summary,clip_id,folder_id,created_at,updated_at FROM documents WHERE id = ?').get(docId),
     );
   });
 
