@@ -76,6 +76,9 @@ export function migrate() {
 
   // v5: 文档文件夹系统（M12）
   if ((db.pragma('user_version', { simple: true }) as number) < 5) migrateToV5();
+
+  // v6: 主栏目支持文档+文件夹混排，移出 default 文件夹
+  if ((db.pragma('user_version', { simple: true }) as number) < 6) migrateToV6();
 }
 
 /**
@@ -221,3 +224,16 @@ function migrateToV5() {
 
   db.pragma('user_version = 5');
 }
+
+/** v6 迁移：文档从 default 文件夹移出到根级，删除 default 文件夹 */
+function migrateToV6() {
+  const defaultFolder = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get('default') as
+    | { id: string }
+    | undefined;
+  if (defaultFolder) {
+    db.prepare('UPDATE documents SET folder_id = NULL WHERE folder_id = ?').run('default');
+    db.prepare('DELETE FROM doc_folders WHERE id = ?').run('default');
+  }
+  db.pragma('user_version = 6');
+}
+

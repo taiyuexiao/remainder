@@ -95,7 +95,7 @@ export default async function clipRoutes(app: FastifyInstance) {
       `INSERT INTO documents (id,title,content,content_text,source_url,summary,clip_id,folder_id,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
     ).run(docId, (b.title ?? clip.title).trim() || clip.title, contentHtml,
-      stripToText(contentHtml), clip.url, clip.excerpt, clip.id, 'default', ts, ts);
+      stripToText(contentHtml), clip.url, clip.excerpt, clip.id, null, ts, ts);
     db.prepare("UPDATE clips SET status='converted', converted_doc_id=? WHERE id=?").run(docId, id);
     rebuildDocsFts();
     return reply.code(201).send(

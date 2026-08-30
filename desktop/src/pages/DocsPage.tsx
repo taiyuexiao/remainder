@@ -42,23 +42,6 @@ function hostOf(url: string): string {
   }
 }
 
-// 把平铺 folder 数组组装成树
-function buildTree(folders: DocFolder[]): (DocFolder & { children: ReturnType<typeof buildTree> })[] {
-  const map = new Map<string, DocFolder & { children: any[] }>();
-  folders.forEach((f) => map.set(f.id, { ...f, children: [] }));
-  const roots: (DocFolder & { children: any[] })[] = [];
-  folders.forEach((f) => {
-    if (f.parent_id) {
-      const parent = map.get(f.parent_id);
-      if (parent) parent.children.push(map.get(f.id)!);
-    } else {
-      roots.push(map.get(f.id)!);
-    }
-  });
-  roots.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
-  return roots;
-}
-
 function folderPath(folders: DocFolder[], id: string): DocFolder[] {
   const map = new Map(folders.map((f) => [f.id, f]));
   const path: DocFolder[] = [];
@@ -72,14 +55,11 @@ function folderPath(folders: DocFolder[], id: string): DocFolder[] {
 
 export default function DocsPage() {
   const [folders, setFolders] = useState<DocFolder[]>([]);
+  const [rootDocs, setRootDocs] = useState<Document[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [childFolders, setChildFolders] = useState<DocFolder[]>([]);
-  const [docs, setDocs] = useState<Document[]>([]);
-  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [creating, setCreating] = useState<{ type: 'folder' | 'doc'; parentId: string | null } | null>(null);
   const [error, setError] = useState('');
-
-  const [creatingDoc, setCreatingDoc] = useState(false);
   const [organizeOpen, setOrganizeOpen] = useState(false);
 
   const loadFolders = useCallback(async () => {
@@ -92,171 +72,126 @@ export default function DocsPage() {
     }
   }, []);
 
-  const loadContents = useCallback(async (folderId: string) => {
+  const loadRootDocs = useCallback(async () => {
     try {
-      const data = await api.folderContents(folderId);
-      setChildFolders(data.folders);
-      setDocs(data.docs as Document[]);
-      setError('');
+      const list = await api.listDocuments('root');
+      setRootDocs(list);
     } catch (e) {
-      setError(`加载内容失败：${(e as Error).message}`);
+      setError(`加载文档失败：${(e as Error).message}`);
     }
   }, []);
 
   useEffect(() => {
     loadFolders();
-  }, [loadFolders]);
+    loadRootDocs();
+  }, [loadFolders, loadRootDocs]);
 
-  useEffect(() => {
-    if (currentFolderId) {
-      loadContents(currentFolderId);
-    } else {
-      setChildFolders([]);
-      setDocs([]);
-    }
-  }, [currentFolderId, loadContents]);
-
-  const tree = useMemo(() => buildTree(folders), [folders]);
+  const refresh = useCallback(async () => {
+    await loadFolders();
+    await loadRootDocs();
+  }, [loadFolders, loadRootDocs]);
 
   const selectFolder = (id: string) => {
     setSelectedFolderId(id);
-    setCurrentFolderId(id);
-    setEditingDocId(null);
-  };
-
-  const enterFolder = (id: string) => {
-    setCurrentFolderId(id);
-    setEditingDocId(null);
+    setSelectedDocId(null);
+    setCreating(null);
   };
 
   const selectDoc = (id: string) => {
-    setEditingDocId(id);
+    setSelectedDocId(id);
+    setSelectedFolderId(null);
+    setCreating(null);
   };
 
-  const backToList = () => {
-    setEditingDocId(null);
+  const selectRoot = () => {
+    setSelectedFolderId(null);
+    setSelectedDocId(null);
+    setCreating(null);
   };
 
-  const createFolder = async (parentId: string | null) => {
-    const name = window.prompt(parentId ? '新建子文件夹名称' : '新建文件夹名称');
-    if (!name?.trim()) return;
+  const startCreate = (type: 'folder' | 'doc') => {
+    setCreating({ type, parentId: selectedFolderId });
+  };
+
+  const cancelCreate = () => setCreating(null);
+
+  const finishCreate = async (name: string) => {
+    if (!creating) return;
+    const { type, parentId } = creating;
+    setCreating(null);
     try {
-      await api.createDocFolder({ name: name.trim(), parentId });
-      await loadFolders();
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  };
-
-  const createDoc = async (folderId: string | null) => {
-    const target = folderId ?? selectedFolderId ?? currentFolderId;
-    if (!target) {
-      alert('请先选择一个文件夹');
-      return;
-    }
-    setCreatingDoc(true);
-    try {
-      const doc = await api.createDocument({ title: '未命名文档', folderId: target });
-      await loadContents(target);
-      setEditingDocId(doc.id);
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setCreatingDoc(false);
-    }
-  };
-
-  const deleteFolder = async (id: string) => {
-    if (!confirm('确认删除该文件夹？子文件夹和文档会移入默认文件夹。')) return;
-    try {
-      await api.deleteDocFolder(id);
-      if (selectedFolderId === id) {
+      if (type === 'folder') {
+        await api.createDocFolder({ name: name.trim() || '新建文件夹', parentId });
+        await refresh();
+      } else {
+        const doc = await api.createDocument({ title: name.trim() || '未命名文档', folderId: parentId });
+        await refresh();
+        setSelectedDocId(doc.id);
         setSelectedFolderId(null);
-        setCurrentFolderId(null);
       }
-      await loadFolders();
-      if (currentFolderId && currentFolderId !== id) await loadContents(currentFolderId);
     } catch (e) {
       alert((e as Error).message);
     }
-  };
-
-  const renameFolder = async (id: string, current: string) => {
-    const name = window.prompt('重命名文件夹', current);
-    if (!name?.trim() || name.trim() === current) return;
-    try {
-      await api.updateDocFolder(id, { name: name.trim() });
-      await loadFolders();
-      if (currentFolderId) await loadContents(currentFolderId);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  };
-
-  const refresh = async () => {
-    await loadFolders();
-    if (currentFolderId) await loadContents(currentFolderId);
   };
 
   return (
     <div className="h-full flex">
-      {/* 主栏目：文件夹树 */}
-      <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
+      {/* 主栏目：文件树 */}
+      <aside className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col">
         <header className="px-3 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="font-semibold text-sm">文件夹</h2>
-          <NewDropdown
-            label="+"
-            onNewFolder={() => createFolder(null)}
-            onNewDoc={() => createDoc(null)}
-            docDisabled={!selectedFolderId && !currentFolderId}
-          />
+          <h2 className="font-semibold text-sm">文档</h2>
+          <NewDropdown onCreate={startCreate} />
         </header>
         {error && <div className="px-3 py-2 text-xs text-red-500 bg-red-50">{error}</div>}
         <div className="flex-1 overflow-y-auto py-2">
-          <FolderTree
-            nodes={tree}
-            selectedId={selectedFolderId}
-            onSelect={selectFolder}
-            onCreateFolder={createFolder}
-            onRename={renameFolder}
-            onDelete={deleteFolder}
+          <FolderTreeRoot
+            folders={folders}
+            docs={rootDocs}
+            selectedFolderId={selectedFolderId}
+            selectedDocId={selectedDocId}
+            creating={creating}
+            onSelectFolder={selectFolder}
+            onSelectDoc={selectDoc}
+            onRefresh={refresh}
+            onCancelCreate={cancelCreate}
+            onFinishCreate={finishCreate}
           />
         </div>
       </aside>
 
       {/* 副栏目：内容区 / 编辑器 */}
       <main className="flex-1 min-w-0 bg-white flex flex-col">
-        {editingDocId ? (
+        {selectedDocId ? (
           <DocEditorShell
-            docId={editingDocId}
+            docId={selectedDocId}
             folders={folders}
-            onBack={backToList}
+            onBack={() => setSelectedDocId(null)}
             onChange={refresh}
           />
-        ) : currentFolderId ? (
-          <FolderContents
+        ) : selectedFolderId ? (
+          <FolderDetails
             folders={folders}
-            currentId={currentFolderId}
-            childFolders={childFolders}
-            docs={docs}
-            onEnterFolder={enterFolder}
+            folderId={selectedFolderId}
+            onEnterFolder={selectFolder}
             onSelectDoc={selectDoc}
-            onCreateFolder={() => createFolder(currentFolderId)}
-            onCreateDoc={() => createDoc(currentFolderId)}
             onOrganize={() => setOrganizeOpen(true)}
-            creatingDoc={creatingDoc}
+            onRefresh={refresh}
           />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-300">
-            <div className="text-5xl mb-4">📁</div>
-            <p className="text-sm">选择一个文件夹开始</p>
-          </div>
+          <RootDetails
+            folders={folders}
+            docs={rootDocs}
+            onSelectFolder={selectFolder}
+            onSelectDoc={selectDoc}
+            onOrganize={() => setOrganizeOpen(true)}
+            onRefresh={refresh}
+          />
         )}
       </main>
 
-      {organizeOpen && currentFolderId && (
+      {organizeOpen && (
         <OrganizeModal
-          folderId={currentFolderId}
+          folderId={selectedFolderId}
           onClose={() => setOrganizeOpen(false)}
           onApplied={refresh}
         />
@@ -265,17 +200,7 @@ export default function DocsPage() {
   );
 }
 
-function NewDropdown({
-  label,
-  onNewFolder,
-  onNewDoc,
-  docDisabled,
-}: {
-  label: string;
-  onNewFolder: () => void;
-  onNewDoc: () => void;
-  docDisabled?: boolean;
-}) {
+function NewDropdown({ onCreate }: { onCreate: (type: 'folder' | 'doc') => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -285,20 +210,21 @@ function NewDropdown({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
         className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
       >
-        {label}
+        +
       </button>
       {open && (
         <div className="absolute right-0 mt-1 w-28 rounded-lg bg-white shadow-lg border border-slate-200 py-1 z-20 text-xs">
           <button
             onClick={() => {
               setOpen(false);
-              onNewFolder();
+              onCreate('folder');
             }}
             className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
           >
@@ -307,10 +233,9 @@ function NewDropdown({
           <button
             onClick={() => {
               setOpen(false);
-              onNewDoc();
+              onCreate('doc');
             }}
-            disabled={docDisabled}
-            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
           >
             <span>📝</span> 文档
           </button>
@@ -320,162 +245,275 @@ function NewDropdown({
   );
 }
 
-function FolderTree({
-  nodes,
-  selectedId,
-  onSelect,
-  onCreateFolder,
-  onRename,
-  onDelete,
+// 根级文件树（文件夹 + 文档混排）
+function FolderTreeRoot({
+  folders,
+  docs,
+  selectedFolderId,
+  selectedDocId,
+  creating,
+  onSelectFolder,
+  onSelectDoc,
+  onRefresh,
+  onCancelCreate,
+  onFinishCreate,
 }: {
-  nodes: (DocFolder & { children: any[] })[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onCreateFolder: (parentId: string) => void;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
+  folders: DocFolder[];
+  docs: Document[];
+  selectedFolderId: string | null;
+  selectedDocId: string | null;
+  creating: { type: 'folder' | 'doc'; parentId: string | null } | null;
+  onSelectFolder: (id: string) => void;
+  onSelectDoc: (id: string) => void;
+  onRefresh: () => void;
+  onCancelCreate: () => void;
+  onFinishCreate: (name: string) => Promise<void>;
 }) {
+  const roots = useMemo(() => folders.filter((f) => f.parent_id === null), [folders]);
   return (
     <div className="px-2 space-y-0.5">
-      {nodes.map((node) => (
-        <FolderNode
-          key={node.id}
-          node={node}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onCreateFolder={onCreateFolder}
-          onRename={onRename}
-          onDelete={onDelete}
+      {roots.map((f) => (
+        <FolderTreeNode
+          key={f.id}
+          folder={f}
+          selectedFolderId={selectedFolderId}
+          selectedDocId={selectedDocId}
+          creating={creating}
+          onSelectFolder={onSelectFolder}
+          onSelectDoc={onSelectDoc}
+          onRefresh={onRefresh}
+          onCancelCreate={onCancelCreate}
+          onFinishCreate={onFinishCreate}
         />
       ))}
+      {docs.map((d) => (
+        <DocTreeNode
+          key={d.id}
+          doc={d}
+          selectedDocId={selectedDocId}
+          onSelect={onSelectDoc}
+        />
+      ))}
+      {creating && creating.parentId === null && (
+        <InlineCreator
+          type={creating.type}
+          onCancel={onCancelCreate}
+          onFinish={onFinishCreate}
+        />
+      )}
     </div>
   );
 }
 
-function FolderNode({
-  node,
-  selectedId,
-  onSelect,
-  onCreateFolder,
-  onRename,
-  onDelete,
+function FolderTreeNode({
+  folder,
+  selectedFolderId,
+  selectedDocId,
+  creating,
+  onSelectFolder,
+  onSelectDoc,
+  onRefresh,
+  onCancelCreate,
+  onFinishCreate,
 }: {
-  node: DocFolder & { children: any[] };
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onCreateFolder: (parentId: string) => void;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
+  folder: DocFolder;
+  selectedFolderId: string | null;
+  selectedDocId: string | null;
+  creating: { type: 'folder' | 'doc'; parentId: string | null } | null;
+  onSelectFolder: (id: string) => void;
+  onSelectDoc: (id: string) => void;
+  onRefresh: () => void;
+  onCancelCreate: () => void;
+  onFinishCreate: (name: string) => Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const hasChildren = node.children.length > 0;
+  const [expanded, setExpanded] = useState(false);
+  const [children, setChildren] = useState<{ folders: DocFolder[]; docs: Document[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadChildren = useCallback(async () => {
+    if (children) return;
+    setLoading(true);
+    try {
+      const data = await api.folderContents(folder.id);
+      setChildren({ folders: data.folders, docs: data.docs as Document[] });
+    } catch {
+      setChildren({ folders: [], docs: [] });
+    } finally {
+      setLoading(false);
+    }
+  }, [folder.id, children]);
+
+  const toggle = async () => {
+    if (!expanded) await loadChildren();
+    setExpanded(!expanded);
+  };
+
+  const rename = async () => {
+    const name = window.prompt('重命名文件夹', folder.name);
+    if (!name?.trim() || name.trim() === folder.name) return;
+    try {
+      await api.updateDocFolder(folder.id, { name: name.trim() });
+      onRefresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirm('确认删除该文件夹？子文件夹和文档会移出到上级。')) return;
+    try {
+      await api.deleteDocFolder(folder.id);
+      onRefresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
   return (
     <div>
       <div
         className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
-          selectedId === node.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
+          selectedFolderId === folder.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
         }`}
-        onClick={() => onSelect(node.id)}
+        onClick={() => onSelectFolder(folder.id)}
       >
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (hasChildren) setExpanded(!expanded);
+            void toggle();
           }}
-          className={`w-4 text-[10px] text-slate-400 transition-transform ${expanded ? '' : '-rotate-90'} ${
-            hasChildren ? '' : 'invisible'
-          }`}
+          className={`w-4 text-[10px] text-slate-400 transition-transform ${expanded ? '' : '-rotate-90'}`}
         >
           ▼
         </button>
         <span className="text-sm">📁</span>
-        <span className="flex-1 truncate">{node.name}</span>
+        <span className="flex-1 truncate font-medium">{folder.name}</span>
         <div className="hidden group-hover:flex items-center gap-1">
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onCreateFolder(node.id);
-            }}
-            title="新建子文件夹"
-            className="text-slate-400 hover:text-indigo-600 px-1"
-          >
-            +
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRename(node.id, node.name);
+              rename();
             }}
             title="重命名"
             className="text-slate-400 hover:text-indigo-600 px-1"
           >
             ✎
           </button>
-          {node.id !== 'default' && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(node.id);
-              }}
-              title="删除"
-              className="text-slate-400 hover:text-red-500 px-1"
-            >
-              🗑
-            </button>
-          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              remove();
+            }}
+            title="删除"
+            className="text-slate-400 hover:text-red-500 px-1"
+          >
+            🗑
+          </button>
         </div>
       </div>
-      {expanded && hasChildren && (
+      {expanded && (
         <div className="pl-4 border-l border-slate-100 ml-3 mt-0.5 space-y-0.5">
-          <FolderTree
-            nodes={node.children}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            onCreateFolder={onCreateFolder}
-            onRename={onRename}
-            onDelete={onDelete}
-          />
+          {loading && <div className="text-xs text-slate-400 py-1">加载中…</div>}
+          {children?.folders.map((f) => (
+            <FolderTreeNode
+              key={f.id}
+              folder={f}
+              selectedFolderId={selectedFolderId}
+              selectedDocId={selectedDocId}
+              creating={creating}
+              onSelectFolder={onSelectFolder}
+              onSelectDoc={onSelectDoc}
+              onRefresh={onRefresh}
+              onCancelCreate={onCancelCreate}
+              onFinishCreate={onFinishCreate}
+            />
+          ))}
+          {children?.docs.map((d) => (
+            <DocTreeNode key={d.id} doc={d} selectedDocId={selectedDocId} onSelect={onSelectDoc} />
+          ))}
+          {creating && creating.parentId === folder.id && (
+            <InlineCreator type={creating.type} onCancel={onCancelCreate} onFinish={onFinishCreate} />
+          )}
+          {children && children.folders.length === 0 && children.docs.length === 0 && !creating && (
+            <div className="text-xs text-slate-300 py-1">空</div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function FolderContents({
+function DocTreeNode({
+  doc,
+  selectedDocId,
+  onSelect,
+}: {
+  doc: Document;
+  selectedDocId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div
+      onClick={() => onSelect(doc.id)}
+      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
+        selectedDocId === doc.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
+      }`}
+    >
+      <span className="text-sm">{doc.clip_id ? '📥' : '📝'}</span>
+      <span className="flex-1 truncate">{doc.title || '未命名'}</span>
+    </div>
+  );
+}
+
+function FolderDetails({
   folders,
-  currentId,
-  childFolders,
-  docs,
+  folderId,
   onEnterFolder,
   onSelectDoc,
-  onCreateFolder,
-  onCreateDoc,
   onOrganize,
-  creatingDoc,
+  onRefresh,
 }: {
   folders: DocFolder[];
-  currentId: string;
-  childFolders: DocFolder[];
-  docs: Document[];
+  folderId: string;
   onEnterFolder: (id: string) => void;
   onSelectDoc: (id: string) => void;
-  onCreateFolder: () => void;
-  onCreateDoc: () => void;
   onOrganize: () => void;
-  creatingDoc: boolean;
+  onRefresh: () => void;
 }) {
-  const path = useMemo(() => folderPath(folders, currentId), [folders, currentId]);
+  const [data, setData] = useState<{ folders: DocFolder[]; docs: Document[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const path = useMemo(() => folderPath(folders, folderId), [folders, folderId]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api
+      .folderContents(folderId)
+      .then((res) => {
+        if (active) setData({ folders: res.folders, docs: res.docs as Document[] });
+      })
+      .catch((e) => alert((e as Error).message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [folderId, onRefresh]);
 
   return (
     <div className="h-full flex flex-col">
       <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
         <div className="flex items-center gap-1 text-sm text-slate-600 min-w-0">
-          {path.map((p, i) => (
+          <button onClick={() => onEnterFolder('root')} className="text-slate-400 hover:text-indigo-600">
+            根目录
+          </button>
+          {path.map((p) => (
             <span key={p.id} className="flex items-center gap-1 min-w-0">
-              {i > 0 && <span className="text-slate-300">/</span>}
+              <span className="text-slate-300">/</span>
               <button
                 onClick={() => onEnterFolder(p.id)}
-                className={`truncate hover:text-indigo-600 ${i === path.length - 1 ? 'font-medium text-slate-800' : ''}`}
+                className={`truncate hover:text-indigo-600 ${p.id === folderId ? 'font-medium text-slate-800' : ''}`}
               >
                 {p.name}
               </button>
@@ -489,33 +527,91 @@ function FolderContents({
           >
             ✨ AI 整理
           </button>
-          <NewDropdown label="+ 新建" onNewFolder={onCreateFolder} onNewDoc={onCreateDoc} />
         </div>
       </header>
-
       <div className="flex-1 overflow-y-auto py-2">
-        {creatingDoc && (
-          <div className="mx-3 mb-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">创建文档中…</div>
-        )}
-
-        {childFolders.length === 0 && docs.length === 0 && (
+        {loading ? (
+          <div className="h-40 flex items-center justify-center text-slate-400 text-sm">加载中…</div>
+        ) : data && data.folders.length === 0 && data.docs.length === 0 ? (
           <div className="h-40 flex flex-col items-center justify-center text-slate-300 text-sm">
             <span className="text-3xl mb-2">🍃</span>
             当前文件夹为空
           </div>
+        ) : (
+          <>
+            {data?.folders.map((f) => (
+              <div
+                key={f.id}
+                onClick={() => onEnterFolder(f.id)}
+                className="mx-3 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-center gap-2 text-slate-700 hover:bg-slate-50 border border-transparent hover:border-slate-100"
+              >
+                <span>📁</span>
+                <span className="text-sm font-medium">{f.name}</span>
+              </div>
+            ))}
+            {data?.docs.map((d) => (
+              <div
+                key={d.id}
+                onClick={() => onSelectDoc(d.id)}
+                className="mx-3 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-start gap-2 text-slate-600 hover:bg-slate-50 border border-transparent hover:border-slate-100"
+              >
+                <span className="mt-0.5">{d.clip_id ? '📥' : '📝'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{d.title || '未命名'}</p>
+                  {d.summary && <p className="text-[10px] text-slate-400 truncate mt-0.5">{d.summary}</p>}
+                  <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2">
+                    <span>{formatTime(d.updated_at)}</span>
+                    {d.tags && <span className="text-slate-300 truncate">{d.tags}</span>}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </>
         )}
+      </div>
+    </div>
+  );
+}
 
-        {childFolders.map((f) => (
+function RootDetails({
+  folders,
+  docs,
+  onSelectFolder,
+  onSelectDoc,
+  onOrganize,
+  onRefresh,
+}: {
+  folders: DocFolder[];
+  docs: Document[];
+  onSelectFolder: (id: string) => void;
+  onSelectDoc: (id: string) => void;
+  onOrganize: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="h-full flex flex-col">
+      <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <h3 className="font-semibold text-sm">根目录</h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onOrganize}
+            className="text-xs rounded-md bg-violet-50 text-violet-700 px-2.5 py-1.5 hover:bg-violet-100"
+          >
+            ✨ AI 整理
+          </button>
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto py-2">
+        {folders.filter((f) => f.parent_id === null).map((f) => (
           <div
             key={f.id}
-            onClick={() => onEnterFolder(f.id)}
+            onClick={() => onSelectFolder(f.id)}
             className="mx-3 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-center gap-2 text-slate-700 hover:bg-slate-50 border border-transparent hover:border-slate-100"
           >
             <span>📁</span>
             <span className="text-sm font-medium">{f.name}</span>
           </div>
         ))}
-
         {docs.map((d) => (
           <div
             key={d.id}
@@ -661,6 +757,11 @@ function DocEditor({
     [save],
   );
 
+  const saveNow = useCallback(() => {
+    const json = editor?.getJSON();
+    save({ title, content: json ? JSON.stringify(json) : undefined, tags });
+  }, [editor, save, title, tags]);
+
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
@@ -679,7 +780,7 @@ function DocEditor({
     };
   }, []);
 
-  const moveDoc = async (folderId: string) => {
+  const moveDoc = async (folderId: string | null) => {
     try {
       await api.updateDocument(doc.id, { folderId });
       onChange();
@@ -723,9 +824,10 @@ function DocEditor({
           )}
           <select
             value={doc.folder_id ?? ''}
-            onChange={(e) => moveDoc(e.target.value)}
+            onChange={(e) => moveDoc(e.target.value || null)}
             className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 focus:outline-none"
           >
+            <option value="">根目录</option>
             {folders.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
@@ -737,7 +839,15 @@ function DocEditor({
       </div>
       <div className="px-4 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
         <span>最后保存：{formatTime(lastSaved)}</span>
-        <span>{saving ? '保存中…' : '已自动保存'}</span>
+        <div className="flex items-center gap-2">
+          <span>{saving ? '保存中…' : '已自动保存'}</span>
+          <button
+            onClick={saveNow}
+            className="rounded-md bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700"
+          >
+            保存
+          </button>
+        </div>
       </div>
     </>
   );
@@ -868,12 +978,51 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   );
 }
 
+function InlineCreator({
+  type,
+  onCancel,
+  onFinish,
+}: {
+  type: 'folder' | 'doc';
+  onCancel: () => void;
+  onFinish: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(type === 'folder' ? '新建文件夹' : '未命名文档');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const submit = async () => {
+    await onFinish(name);
+  };
+
+  return (
+    <div className="flex items-center gap-1 rounded-lg px-2 py-1.5 bg-indigo-50 border border-indigo-200">
+      <span className="text-sm">{type === 'folder' ? '📁' : '📝'}</span>
+      <input
+        ref={inputRef}
+        className="flex-1 text-sm bg-transparent focus:outline-none"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void submit();
+          if (e.key === 'Escape') onCancel();
+        }}
+        onBlur={() => onCancel()}
+      />
+    </div>
+  );
+}
+
 function OrganizeModal({
   folderId,
   onClose,
   onApplied,
 }: {
-  folderId: string;
+  folderId: string | null;
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -886,7 +1035,7 @@ function OrganizeModal({
     let active = true;
     setLoading(true);
     api
-      .previewAutoOrganize(folderId, false)
+      .previewAutoOrganize(folderId, folderId === null)
       .then((res) => {
         if (!active) return;
         setSuggestions(res.suggestions);

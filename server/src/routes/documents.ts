@@ -26,9 +26,12 @@ export default async function documentRoutes(app: FastifyInstance) {
     return searchDocs(q ?? '');
   });
 
-  // 列表：按更新时间倒序；支持 folderId 筛选
+  // 列表：按更新时间倒序；支持 folderId 筛选（folderId='root' 或空表示根级）
   app.get('/api/documents', async (req) => {
     const { folderId } = req.query as { folderId?: string };
+    if (folderId === 'root') {
+      return db.prepare(`SELECT ${LIST_COLS} FROM documents WHERE folder_id IS NULL ORDER BY updated_at DESC`).all();
+    }
     if (folderId) {
       return db.prepare(`SELECT ${LIST_COLS} FROM documents WHERE folder_id = ? ORDER BY updated_at DESC`).all(folderId);
     }
@@ -50,8 +53,8 @@ export default async function documentRoutes(app: FastifyInstance) {
     const id = uuid();
     const ts = now();
     const content = b.content ?? emptyDocContent;
-    const folderId = b.folderId ?? 'default';
-    if (folderId !== 'default') {
+    const folderId = b.folderId ?? null;
+    if (folderId) {
       const folder = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(folderId);
       if (!folder) return reply.code(400).send({ error: 'folderId 不存在' });
     }
@@ -81,7 +84,7 @@ export default async function documentRoutes(app: FastifyInstance) {
     if (b.source_url !== undefined) { sets.push('source_url = ?'); params.push(b.source_url); }
     if (b.summary !== undefined) { sets.push('summary = ?'); params.push(b.summary); }
     if (b.folderId !== undefined) {
-      if (b.folderId !== null && b.folderId !== 'default') {
+      if (b.folderId) {
         const folder = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(b.folderId);
         if (!folder) return reply.code(400).send({ error: 'folderId 不存在' });
       }

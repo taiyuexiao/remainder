@@ -11,9 +11,7 @@ interface FolderBody {
 }
 
 const FOLDER_COLS = 'id, name, parent_id, sort_order, created_at, updated_at';
-const DOC_LIGHT_COLS = 'id, title, tags, source_url, summary, clip_id, created_at, updated_at';
-
-const DEFAULT_FOLDER_ID = 'default';
+const DOC_LIGHT_COLS = 'id, title, tags, source_url, summary, clip_id, folder_id, created_at, updated_at';
 
 export default async function docFolderRoutes(app: FastifyInstance) {
   // 平铺列出所有文件夹（前端自己组装树）
@@ -39,7 +37,6 @@ export default async function docFolderRoutes(app: FastifyInstance) {
   // 更新文件夹（重命名 / 移动父级）
   app.patch('/api/doc-folders/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (id === DEFAULT_FOLDER_ID) return reply.code(400).send({ error: '默认文件夹不能修改' });
     const exist = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(id);
     if (!exist) return reply.code(404).send({ error: '文件夹不存在' });
     const b = (req.body ?? {}) as FolderBody;
@@ -49,9 +46,9 @@ export default async function docFolderRoutes(app: FastifyInstance) {
       if (b.parentId) {
         const parent = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(b.parentId);
         if (!parent) return reply.code(400).send({ error: 'parentId 不存在' });
-        // 简单防环：不允许移动到子树之下（只检查一层祖先）
-        const child = db.prepare('SELECT id FROM doc_folders WHERE parent_id = ? LIMIT 1').get(id);
-        if (child && b.parentId === (child as { id: string }).id) {
+        // 防环：不允许移动到子树之下
+        const descendantIds = collectDescendantIds(id);
+        if (descendantIds.includes(b.parentId)) {
           return reply.code(400).send({ error: '不能移动到子文件夹下' });
         }
       }
@@ -69,44 +66,66 @@ export default async function docFolderRoutes(app: FastifyInstance) {
     return db.prepare(`SELECT ${FOLDER_COLS} FROM doc_folders WHERE id = ?`).get(id);
   });
 
-  // 删除文件夹：子文件夹删除，文档移入 default
+  // 删除文件夹：子文件夹和文档移入父级（根级则移到根级）
   app.delete('/api/doc-folders/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (id === DEFAULT_FOLDER_ID) return reply.code(400).send({ error: '默认文件夹不能删除' });
-    const exist = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(id);
-    if (!exist) return reply.code(404).send({ error: '文件夹不存在' });
+    const folder = db.prepare('SELECT id, parent_id FROM doc_folders WHERE id = ?').get(id) as
+      | { id: string; parent_id: string | null }
+      | undefined;
+    if (!folder) return reply.code(404).send({ error: '文件夹不存在' });
 
-    // 把所有该文件夹及其子文件夹下的文档移入 default
+    const parentId = folder.parent_id;
     const descendantIds = collectDescendantIds(id);
     const allIds = [id, ...descendantIds];
     const placeholders = allIds.map(() => '?').join(',');
-    db.prepare(`UPDATE documents SET folder_id = ? WHERE folder_id IN (${placeholders})`).run(DEFAULT_FOLDER_ID, ...allIds);
 
-    // 删除子文件夹及自身
+    // 文档移到父级（或根级）
+    db.prepare(`UPDATE documents SET folder_id = ? WHERE folder_id IN (${placeholders})`).run(parentId, ...allIds);
+    // 子文件夹移到父级（或根级）
+    db.prepare(`UPDATE doc_folders SET parent_id = ? WHERE parent_id IN (${placeholders})`).run(parentId, ...allIds);
+    // 删除自身和后代文件夹
     db.prepare(`DELETE FROM doc_folders WHERE id IN (${placeholders})`).run(...allIds);
+
     rebuildDocsFts();
     return { deleted: id };
   });
 
-  // 获取某个文件夹的内容：子文件夹 + 文档
+  // 获取某个文件夹的内容：子文件夹 + 文档；id='root' 表示根级
   app.get('/api/doc-folders/:id/contents', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const folder = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(id);
-    if (!folder) return reply.code(404).send({ error: '文件夹不存在' });
-    const folders = db.prepare(`SELECT ${FOLDER_COLS} FROM doc_folders WHERE parent_id = ? ORDER BY sort_order ASC, name ASC`).all(id);
-    const docs = db.prepare(`SELECT ${DOC_LIGHT_COLS} FROM documents WHERE folder_id = ? ORDER BY updated_at DESC`).all(id);
+    let folders: unknown[];
+    let docs: unknown[];
+    if (id === 'root') {
+      folders = db
+        .prepare(`SELECT ${FOLDER_COLS} FROM doc_folders WHERE parent_id IS NULL ORDER BY sort_order ASC, name ASC`)
+        .all();
+      docs = db
+        .prepare(`SELECT ${DOC_LIGHT_COLS} FROM documents WHERE folder_id IS NULL ORDER BY updated_at DESC`)
+        .all();
+    } else {
+      const folder = db.prepare('SELECT id FROM doc_folders WHERE id = ?').get(id);
+      if (!folder) return reply.code(404).send({ error: '文件夹不存在' });
+      folders = db
+        .prepare(`SELECT ${FOLDER_COLS} FROM doc_folders WHERE parent_id = ? ORDER BY sort_order ASC, name ASC`)
+        .all(id);
+      docs = db
+        .prepare(`SELECT ${DOC_LIGHT_COLS} FROM documents WHERE folder_id = ? ORDER BY updated_at DESC`)
+        .all(id);
+    }
     return { folders, docs };
   });
 
   // LLM 归档预览
   app.post('/api/doc-folders/auto-organize/preview', async (req, reply) => {
-    const { folderId, onlyUnorganized } = (req.body ?? {}) as { folderId?: string; onlyUnorganized?: boolean };
-    const where = folderId
-      ? 'folder_id = ?'
-      : onlyUnorganized
-        ? 'folder_id = ?'
-        : '1=1';
-    const params = folderId || onlyUnorganized ? [folderId ?? DEFAULT_FOLDER_ID] : [];
+    const { folderId, onlyUnorganized } = (req.body ?? {}) as { folderId?: string | null; onlyUnorganized?: boolean };
+    let where = '1=1';
+    const params: unknown[] = [];
+    if (folderId) {
+      where = 'folder_id = ?';
+      params.push(folderId);
+    } else if (onlyUnorganized) {
+      where = 'folder_id IS NULL';
+    }
     const docs = db
       .prepare(`SELECT id, title, summary, content FROM documents WHERE ${where} ORDER BY updated_at DESC LIMIT 100`)
       .all(...params) as { id: string; title: string; summary: string; content: string }[];

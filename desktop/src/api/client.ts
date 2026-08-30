@@ -233,7 +233,7 @@ export const api = {
     req<DocFolder>(`/api/doc-folders/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteDocFolder: (id: string) => req<{ deleted: string }>(`/api/doc-folders/${id}`, { method: 'DELETE' }),
   folderContents: (id: string) => req<{ folders: DocFolder[]; docs: Document[] }>(`/api/doc-folders/${id}/contents`),
-  previewAutoOrganize: (folderId?: string, onlyUnorganized?: boolean) =>
+  previewAutoOrganize: (folderId?: string | null, onlyUnorganized?: boolean) =>
     req<{ suggestions: { name: string; docIds: string[] }[]; docs: { id: string; title: string; summary: string }[] }>(
       '/api/doc-folders/auto-organize/preview',
       { method: 'POST', body: JSON.stringify({ folderId, onlyUnorganized }) },
