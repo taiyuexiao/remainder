@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCurrentWindow, getAllWindows, LogicalSize, LogicalPosition, currentMonitor } from '@tauri-apps/api/window';
+import { getCurrentWindow, getAllWindows, LogicalSize, LogicalPosition, PhysicalPosition, currentMonitor } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api/client';
 import petImg from '../assets/pet/remielle.png';
@@ -48,6 +48,10 @@ export default function PetPage() {
   });
 
   const [W, H] = SIZES[sizeIdx];
+
+  // 点击/双击计时（单击 vs 双击用时间间隔判定）
+  const lastClickAt = useRef(0);
+  const DOUBLE_CLICK_MS = 260;
 
   const showBubble = (text: string, ms = 4000) => {
     setBubble(text);
@@ -212,38 +216,80 @@ export default function PetPage() {
     };
   }, []);
 
-  /* ---------- 单击分区域互动（崩三式） ---------- */
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
-  const clickTimer = useRef<number>(0);
+  /* ---------- 单击分区域互动 + 自己实现拖拽 ---------- */
+  // 自己实现拖拽：避免 Tauri startDragging() 吞掉 mouseup，导致单击/双击失效
+  const drag = useRef<{
+    startX: number;
+    startY: number;
+    winX: number;
+    winY: number;
+    dragging: boolean;
+  } | null>(null);
 
   const onMouseDown = async (e: React.MouseEvent) => {
-    setMenu(null); // 菜单 bug 修复：任意按下即关菜单（原来依赖 click，被拖拽吞掉）
+    setMenu(null);
     if (e.button !== 0) return;
-    dragStart.current = { x: e.screenX, y: e.screenY };
-    await getCurrentWindow().startDragging();
-  };
 
-  const onMouseUp = (e: React.MouseEvent) => {
-    if (!dragStart.current) return;
-    const dx = e.screenX - dragStart.current.x;
-    const dy = e.screenY - dragStart.current.y;
-    dragStart.current = null;
-    if (Math.hypot(dx, dy) >= 5) return; // 拖动不触发互动
+    const win = getCurrentWindow();
+    const pos = await win.outerPosition();
+    drag.current = {
+      startX: e.screenX,
+      startY: e.screenY,
+      winX: pos.x,
+      winY: pos.y,
+      dragging: false,
+    };
 
-    // 单击 vs 双击：用 timer 区分
-    if (clickTimer.current) {
-      window.clearTimeout(clickTimer.current);
-      clickTimer.current = 0;
-      setChatOpen((v) => !v); // 双击 = 对话框
-      return;
-    }
-    const ry = e.clientY / window.innerHeight;
-    clickTimer.current = window.setTimeout(() => {
-      clickTimer.current = 0;
-      if (ry < 0.32) patHead();          // 头部：摸头
-      else if (ry > 0.42 && ry < 0.62) shy(); // 胸部：害羞
-      else touchBody();                   // 其他：通用
-    }, 260);
+    const onMove = (ev: MouseEvent) => {
+      if (!drag.current) return;
+      const dx = ev.screenX - drag.current.startX;
+      const dy = ev.screenY - drag.current.startY;
+      if (!drag.current.dragging && Math.hypot(dx, dy) > 4) {
+        drag.current.dragging = true;
+      }
+      if (drag.current.dragging) {
+        void win.setPosition(
+          new PhysicalPosition(drag.current.winX + dx, drag.current.winY + dy),
+        );
+      }
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (!drag.current) return;
+
+      const wasDragging = drag.current.dragging;
+      const dx = ev.screenX - drag.current.startX;
+      const dy = ev.screenY - drag.current.startY;
+      drag.current = null;
+
+      // 拖动不触发互动
+      if (wasDragging || Math.hypot(dx, dy) > 4) return;
+
+      const now = Date.now();
+      if (now - lastClickAt.current < DOUBLE_CLICK_MS) {
+        // 双击：开关对话框
+        lastClickAt.current = 0;
+        setChatOpen((v) => !v);
+        return;
+      }
+      lastClickAt.current = now;
+
+      // 延迟判定单击，若超时未再次点击则执行区域互动
+      window.setTimeout(() => {
+        if (Date.now() - lastClickAt.current >= DOUBLE_CLICK_MS) {
+          lastClickAt.current = 0;
+          const ry = ev.clientY / window.innerHeight;
+          if (ry < 0.35) patHead();              // 头部：摸头
+          else if (ry > 0.42 && ry < 0.62) shy(); // 胸部：害羞
+          else touchBody();                       // 其他：通用
+        }
+      }, DOUBLE_CLICK_MS + 10);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   };
 
   /* ---------- Esc 关菜单/对话框 ---------- */
@@ -358,7 +404,6 @@ export default function PetPage() {
         ref={canvasRef}
         className="w-full h-full cursor-pointer"
         onMouseDown={onMouseDown}
-        onMouseUp={onMouseUp}
       />
 
       {/* 右键菜单：娱乐模式 + 功能 */}
