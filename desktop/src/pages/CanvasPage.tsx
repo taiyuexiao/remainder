@@ -116,12 +116,17 @@ export default function CanvasPage() {
 
 function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefresh: () => void }) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [items, setItems] = useState<CanvasItem[]>(board.items);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [draggingItem, setDraggingItem] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempContent, setTempContent] = useState('');
+
+  useEffect(() => {
+    setItems(board.items);
+  }, [board.items]);
 
   const createItem = async (x: number, y: number, type: 'text' | 'image' | 'clip' = 'text') => {
     const worldX = (x - pan.x) / scale;
@@ -165,6 +170,7 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
 
   const onMouseDown = (e: React.MouseEvent, item: CanvasItem) => {
     if (e.button !== 0) return;
+    if (editingId === item.id) return;
     e.stopPropagation();
     const rect = canvasRef.current!.getBoundingClientRect();
     const worldX = (e.clientX - rect.left - pan.x) / scale;
@@ -178,10 +184,24 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
     const rect = canvasRef.current!.getBoundingClientRect();
     const worldX = (e.clientX - rect.left - pan.x) / scale;
     const worldY = (e.clientY - rect.top - pan.y) / scale;
-    updateItem(draggingItem, { x: worldX - dragOffset.x, y: worldY - dragOffset.y });
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === draggingItem ? { ...it, x: worldX - dragOffset.x, y: worldY - dragOffset.y } : it,
+      ),
+    );
   };
 
-  const onMouseUp = () => {
+  const onMouseUp = async () => {
+    if (draggingItem) {
+      const item = items.find((it) => it.id === draggingItem);
+      if (item) {
+        try {
+          await api.updateCanvasItem(draggingItem, { x: item.x, y: item.y });
+        } catch (e) {
+          alert((e as Error).message);
+        }
+      }
+    }
     setDraggingItem(null);
   };
 
@@ -232,7 +252,7 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
           className="absolute inset-0"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
         >
-          {board.items.map((item) => (
+          {items.map((item) => (
             <div
               key={item.id}
               className="absolute rounded-xl bg-white shadow-md border border-slate-200 overflow-hidden group"
