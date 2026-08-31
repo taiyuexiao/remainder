@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TaskList from '@tiptap/extension-task-list';
@@ -61,6 +61,7 @@ export default function DocsPage() {
   const [creating, setCreating] = useState<{ type: 'folder' | 'doc'; parentId: string | null } | null>(null);
   const [error, setError] = useState('');
   const [organizeOpen, setOrganizeOpen] = useState(false);
+  const [treeKey, setTreeKey] = useState(0);
 
   const loadFolders = useCallback(async () => {
     try {
@@ -89,6 +90,7 @@ export default function DocsPage() {
   const refresh = useCallback(async () => {
     await loadFolders();
     await loadRootDocs();
+    setTreeKey((k) => k + 1);
   }, [loadFolders, loadRootDocs]);
 
   const selectFolder = (id: string) => {
@@ -109,8 +111,8 @@ export default function DocsPage() {
     setCreating(null);
   };
 
-  const startCreate = (type: 'folder' | 'doc') => {
-    setCreating({ type, parentId: selectedFolderId });
+  const startCreate = (type: 'folder' | 'doc', parentId: string | null = selectedFolderId) => {
+    setCreating({ type, parentId });
   };
 
   const cancelCreate = () => setCreating(null);
@@ -150,9 +152,11 @@ export default function DocsPage() {
             selectedFolderId={selectedFolderId}
             selectedDocId={selectedDocId}
             creating={creating}
+            refreshKey={treeKey}
             onSelectFolder={selectFolder}
             onSelectDoc={selectDoc}
             onRefresh={refresh}
+            onStartCreate={startCreate}
             onCancelCreate={cancelCreate}
             onFinishCreate={finishCreate}
           />
@@ -245,6 +249,59 @@ function NewDropdown({ onCreate }: { onCreate: (type: 'folder' | 'doc') => void 
   );
 }
 
+// 文件夹行内「+」菜单：在该文件夹下新建子文件夹 / 文档
+function NodeCreateMenu({ onCreate }: { onCreate: (type: 'folder' | 'doc') => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        title="新建"
+        className="text-slate-400 hover:text-indigo-600 px-1"
+      >
+        ＋
+      </button>
+      {open && (
+        <div className="absolute left-0 mt-1 w-28 rounded-lg bg-white shadow-lg border border-slate-200 py-1 z-20 text-xs">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onCreate('doc');
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+          >
+            <span>📝</span> 文档
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              onCreate('folder');
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+          >
+            <span>📁</span> 子文件夹
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 根级文件树（文件夹 + 文档混排）
 function FolderTreeRoot({
   folders,
@@ -252,9 +309,11 @@ function FolderTreeRoot({
   selectedFolderId,
   selectedDocId,
   creating,
+  refreshKey,
   onSelectFolder,
   onSelectDoc,
   onRefresh,
+  onStartCreate,
   onCancelCreate,
   onFinishCreate,
 }: {
@@ -263,9 +322,11 @@ function FolderTreeRoot({
   selectedFolderId: string | null;
   selectedDocId: string | null;
   creating: { type: 'folder' | 'doc'; parentId: string | null } | null;
+  refreshKey: number;
   onSelectFolder: (id: string) => void;
   onSelectDoc: (id: string) => void;
   onRefresh: () => void;
+  onStartCreate: (type: 'folder' | 'doc', parentId: string | null) => void;
   onCancelCreate: () => void;
   onFinishCreate: (name: string) => Promise<void>;
 }) {
@@ -279,9 +340,11 @@ function FolderTreeRoot({
           selectedFolderId={selectedFolderId}
           selectedDocId={selectedDocId}
           creating={creating}
+          refreshKey={refreshKey}
           onSelectFolder={onSelectFolder}
           onSelectDoc={onSelectDoc}
           onRefresh={onRefresh}
+          onStartCreate={onStartCreate}
           onCancelCreate={onCancelCreate}
           onFinishCreate={onFinishCreate}
         />
@@ -310,9 +373,11 @@ function FolderTreeNode({
   selectedFolderId,
   selectedDocId,
   creating,
+  refreshKey,
   onSelectFolder,
   onSelectDoc,
   onRefresh,
+  onStartCreate,
   onCancelCreate,
   onFinishCreate,
 }: {
@@ -320,9 +385,11 @@ function FolderTreeNode({
   selectedFolderId: string | null;
   selectedDocId: string | null;
   creating: { type: 'folder' | 'doc'; parentId: string | null } | null;
+  refreshKey: number;
   onSelectFolder: (id: string) => void;
   onSelectDoc: (id: string) => void;
   onRefresh: () => void;
+  onStartCreate: (type: 'folder' | 'doc', parentId: string | null) => void;
   onCancelCreate: () => void;
   onFinishCreate: (name: string) => Promise<void>;
 }) {
@@ -330,8 +397,7 @@ function FolderTreeNode({
   const [children, setChildren] = useState<{ folders: DocFolder[]; docs: Document[] } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const loadChildren = useCallback(async () => {
-    if (children) return;
+  const reloadChildren = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.folderContents(folder.id);
@@ -341,11 +407,29 @@ function FolderTreeNode({
     } finally {
       setLoading(false);
     }
-  }, [folder.id, children]);
+  }, [folder.id]);
+
+  const loadChildren = useCallback(async () => {
+    if (children) return;
+    await reloadChildren();
+  }, [children, reloadChildren]);
+
+  // 外部 refresh（如新建/删除/整理）后，展开的节点重新加载子级
+  useEffect(() => {
+    if (expanded) void reloadChildren();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const toggle = async () => {
     if (!expanded) await loadChildren();
     setExpanded(!expanded);
+  };
+
+  // 在该文件夹下新建：确保展开并加载子级，再挂内联输入框
+  const startCreateHere = async (type: 'folder' | 'doc') => {
+    if (!children) await loadChildren();
+    setExpanded(true);
+    onStartCreate(type, folder.id);
   };
 
   const rename = async () => {
@@ -375,7 +459,10 @@ function FolderTreeNode({
         className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
           selectedFolderId === folder.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
         }`}
-        onClick={() => onSelectFolder(folder.id)}
+        onClick={() => {
+          onSelectFolder(folder.id);
+          void toggle();
+        }}
       >
         <button
           onClick={(e) => {
@@ -389,6 +476,7 @@ function FolderTreeNode({
         <span className="text-sm">📁</span>
         <span className="flex-1 truncate font-medium">{folder.name}</span>
         <div className="hidden group-hover:flex items-center gap-1">
+          <NodeCreateMenu onCreate={(type) => void startCreateHere(type)} />
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -421,9 +509,11 @@ function FolderTreeNode({
               selectedFolderId={selectedFolderId}
               selectedDocId={selectedDocId}
               creating={creating}
+              refreshKey={refreshKey}
               onSelectFolder={onSelectFolder}
               onSelectDoc={onSelectDoc}
               onRefresh={onRefresh}
+              onStartCreate={onStartCreate}
               onCancelCreate={onCancelCreate}
               onFinishCreate={onFinishCreate}
             />
