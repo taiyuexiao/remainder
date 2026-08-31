@@ -8,8 +8,10 @@ import InboxPage from './pages/InboxPage';
 import ClipsPage from './pages/ClipsPage';
 import SettingsPage from './pages/SettingsPage';
 import DocsPage from './pages/DocsPage';
+import ReportsPage from './pages/ReportsPage';
+import CanvasPage from './pages/CanvasPage';
 
-type NavKey = 'today' | 'calendar' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'settings';
+type NavKey = 'today' | 'calendar' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'settings';
 
 const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
   { key: 'today', label: '今日', icon: '☀️', hint: '' },
@@ -19,6 +21,8 @@ const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
   { key: 'inbox', label: 'Inbox', icon: '💡', hint: '' },
   { key: 'clips', label: '剪藏', icon: '📥', hint: '' },
   { key: 'docs', label: '文档', icon: '📝', hint: '' },
+  { key: 'reports', label: '报告', icon: '📊', hint: '' },
+  { key: 'canvas', label: '画布', icon: '🎨', hint: '' },
   { key: 'settings', label: '设置', icon: '⚙️', hint: '' },
 ];
 
@@ -104,6 +108,10 @@ export default function App() {
           <ClipsPage />
         ) : nav === 'docs' ? (
           <DocsPage />
+        ) : nav === 'reports' ? (
+          <ReportsPage />
+        ) : nav === 'canvas' ? (
+          <CanvasPage />
         ) : nav === 'settings' ? (
           <SettingsPage />
         ) : (

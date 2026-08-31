@@ -79,6 +79,12 @@ export function migrate() {
 
   // v6: 主栏目支持文档+文件夹混排，移出 default 文件夹
   if ((db.pragma('user_version', { simple: true }) as number) < 6) migrateToV6();
+
+  // v7: 报告系统（日报/周报/月报 + 任务概览）
+  if ((db.pragma('user_version', { simple: true }) as number) < 7) migrateToV7();
+
+  // v8: 调研画布
+  if ((db.pragma('user_version', { simple: true }) as number) < 8) migrateToV8();
 }
 
 /**
@@ -236,4 +242,51 @@ function migrateToV6() {
   }
   db.pragma('user_version = 6');
 }
+
+/** v7 迁移：报告系统 */
+function migrateToV7() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK(type IN ('daily','weekly','monthly')),
+      date TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reports_type_date ON reports(type, date DESC);
+  `);
+  db.pragma('user_version = 7');
+}
+
+/** v8 迁移：调研画布 */
+function migrateToV8() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canvas_boards (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS canvas_items (
+      id TEXT PRIMARY KEY,
+      board_id TEXT NOT NULL REFERENCES canvas_boards(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK(type IN ('text','image','clip')),
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      w REAL DEFAULT 240,
+      h REAL DEFAULT 160,
+      content TEXT DEFAULT '',
+      source_url TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_canvas_items_board ON canvas_items(board_id);
+  `);
+  db.pragma('user_version = 8');
+}
+
+
 

@@ -8,11 +8,12 @@ import projectRoutes from './routes/projects.js';
 import followUpRoutes from './routes/followUps.js';
 import inboxRoutes from './routes/inbox.js';
 import settingsRoutes from './routes/settings.js';
-import reportRoutes from './routes/report.js';
 import notificationRoutes from './routes/notifications.js';
 import documentRoutes from './routes/documents.js';
 import clipRoutes from './routes/clips.js';
 import docFolderRoutes from './routes/docFolders.js';
+import reportRoutes from './routes/reports.js';
+import canvasRoutes from './routes/canvas.js';
 import llmRoutes from './routes/llm.js';
 import { startScheduler } from './scheduler/index.js';
 
@@ -75,6 +76,7 @@ await app.register(notificationRoutes);
 await app.register(documentRoutes);
 await app.register(clipRoutes);
 await app.register(docFolderRoutes);
+await app.register(canvasRoutes);
 await app.register(llmRoutes);
 
 startScheduler();

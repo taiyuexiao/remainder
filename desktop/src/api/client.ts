@@ -163,6 +163,51 @@ export interface ProjectInput {
   nextFollowDate?: string;
 }
 
+export interface CanvasBoard {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanvasItem {
+  id: string;
+  board_id: string;
+  type: 'text' | 'image' | 'clip';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  content: string;
+  source_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CanvasBoardWithItems extends CanvasBoard {
+  items: CanvasItem[];
+}
+
+export interface Report {
+  id: string;
+  type: 'daily' | 'weekly' | 'monthly';
+  date: string;
+  title: string;
+  content: string;
+  created_at: string;
+}
+
+export interface TaskRangeData {
+  date: string;
+  overdue: Task[];
+  today: Task[];
+  followUps: FollowTask[];
+  doneProjects?: Project[];
+  doneTasks?: Task[];
+  doingProjects?: Project[];
+  overdueTasks?: Task[];
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -254,7 +299,7 @@ export const api = {
   convertClip: (id: string, title?: string) =>
     req<Document>(`/api/clips/${id}/convert`, { method: 'POST', body: JSON.stringify({ title }) }),
   listNotifications: () => req<NotificationItem[]>('/api/notifications'),
-  generateWeeklyReport: () =>
+  generateWeeklyReportDoc: () =>
     req<Document>('/api/llm/weekly-report', { method: 'POST' }),
   polishText: (text: string, instruction?: string) =>
     req<{ result: string }>('/api/llm/polish', { method: 'POST', body: JSON.stringify({ text, instruction }) }),
@@ -262,6 +307,32 @@ export const api = {
     req<NotificationItem[]>('/api/notifications/check', { method: 'POST' }),
   clearNotifications: () =>
     req<{ cleared: boolean }>('/api/notifications/clear', { method: 'POST' }),
+  // 报告系统
+  reportTasks: (range: 'today' | 'week' | 'month') => req<TaskRangeData>(`/api/reports/tasks/${range}`),
+  listReports: (type?: string) => req<Report[]>(`/api/reports${type ? `?type=${type}` : ''}`),
+  getReport: (id: string) => req<Report>(`/api/reports/${id}`),
+  generateDailyReport: (date?: string) =>
+    req<Report>('/api/reports/daily', { method: 'POST', body: JSON.stringify({ date }) }),
+  generateWeeklyReport: (date?: string) =>
+    req<Report>('/api/reports/weekly', { method: 'POST', body: JSON.stringify({ date }) }),
+  generateMonthlyReport: (date?: string) =>
+    req<Report>('/api/reports/monthly', { method: 'POST', body: JSON.stringify({ date }) }),
+  deleteReport: (id: string) => req<{ deleted: string }>(`/api/reports/${id}`, { method: 'DELETE' }),
+  // 调研画布
+  listCanvasBoards: () => req<CanvasBoard[]>('/api/canvas-boards'),
+  createCanvasBoard: (title: string) =>
+    req<CanvasBoard>('/api/canvas-boards', { method: 'POST', body: JSON.stringify({ title }) }),
+  getCanvasBoard: (id: string) => req<CanvasBoardWithItems>(`/api/canvas-boards/${id}`),
+  updateCanvasBoard: (id: string, title: string) =>
+    req<CanvasBoard>(`/api/canvas-boards/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  deleteCanvasBoard: (id: string) =>
+    req<{ deleted: string }>(`/api/canvas-boards/${id}`, { method: 'DELETE' }),
+  createCanvasItem: (boardId: string, b: Partial<CanvasItem>) =>
+    req<CanvasItem>(`/api/canvas-boards/${boardId}/items`, { method: 'POST', body: JSON.stringify(b) }),
+  updateCanvasItem: (id: string, b: Partial<CanvasItem>) =>
+    req<CanvasItem>(`/api/canvas-items/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteCanvasItem: (id: string) =>
+    req<{ deleted: string }>(`/api/canvas-items/${id}`, { method: 'DELETE' }),
 };
 
 export const TYPE_LABEL: Record<TaskType, string> = {
