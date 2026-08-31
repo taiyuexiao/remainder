@@ -195,6 +195,7 @@ export interface Report {
   title: string;
   content: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface TaskRangeData {
@@ -311,12 +312,12 @@ export const api = {
   reportTasks: (range: 'today' | 'week' | 'month') => req<TaskRangeData>(`/api/reports/tasks/${range}`),
   listReports: (type?: string) => req<Report[]>(`/api/reports${type ? `?type=${type}` : ''}`),
   getReport: (id: string) => req<Report>(`/api/reports/${id}`),
-  generateDailyReport: (date?: string) =>
-    req<Report>('/api/reports/daily', { method: 'POST', body: JSON.stringify({ date }) }),
-  generateWeeklyReport: (date?: string) =>
-    req<Report>('/api/reports/weekly', { method: 'POST', body: JSON.stringify({ date }) }),
-  generateMonthlyReport: (date?: string) =>
-    req<Report>('/api/reports/monthly', { method: 'POST', body: JSON.stringify({ date }) }),
+  getReportByDate: (type: string, date: string) =>
+    req<Report>(`/api/reports/by-date?type=${type}&date=${encodeURIComponent(date)}`),
+  createReport: (b: { type: 'daily' | 'weekly' | 'monthly'; date: string; title?: string; content?: string }) =>
+    req<Report>('/api/reports', { method: 'POST', body: JSON.stringify(b) }),
+  updateReport: (id: string, b: { title?: string; content?: string }) =>
+    req<Report>(`/api/reports/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteReport: (id: string) => req<{ deleted: string }>(`/api/reports/${id}`, { method: 'DELETE' }),
   // 调研画布
   listCanvasBoards: () => req<CanvasBoard[]>('/api/canvas-boards'),

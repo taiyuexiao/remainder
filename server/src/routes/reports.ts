@@ -3,10 +3,13 @@ import { db } from '../db/connection.js';
 import { localDate, now, uuid } from './helpers.js';
 import { generateWeeklyReport } from '../llm/index.js';
 
-const REPORT_COLS = 'id, type, date, title, content, created_at';
+const REPORT_COLS = 'id, type, date, title, content, created_at, updated_at';
 
 interface ReportBody {
+  type?: 'daily' | 'weekly' | 'monthly';
   date?: string;
+  title?: string;
+  content?: string;
 }
 
 /** 本日任务概览 */
@@ -97,8 +100,46 @@ function weekStartDate(): Date {
   return d;
 }
 
-/** 无 LLM 时的模板降级日报 */
-function buildDailyFallback(data: ReturnType<typeof getDailyTasks>): string {
+/** Markdown → Tiptap JSON */
+function mdToTiptapJson(md: string): string {
+  const nodes: Record<string, unknown>[] = [];
+  let list: string[] | null = null;
+  const flushList = () => {
+    if (list?.length) {
+      nodes.push({
+        type: 'bulletList',
+        content: list.map((t) => ({
+          type: 'listItem',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }],
+        })),
+      });
+    }
+    list = null;
+  };
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (!line) { flushList(); continue; }
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      flushList();
+      nodes.push({
+        type: 'heading',
+        attrs: { level: h[1].length },
+        content: [{ type: 'text', text: h[2].replace(/\*\*(.+?)\*\*/g, '$1') }],
+      });
+      continue;
+    }
+    const li = line.match(/^[-*]\s+(.*)$/);
+    if (li) { (list ??= []).push(li[1].replace(/\*\*(.+?)\*\*/g, '$1')); continue; }
+    flushList();
+    nodes.push({ type: 'paragraph', content: [{ type: 'text', text: line.replace(/\*\*(.+?)\*\*/g, '$1') }] });
+  }
+  flushList();
+  return JSON.stringify({ type: 'doc', content: nodes.length ? nodes : [{ type: 'paragraph' }] });
+}
+
+/** 预填日报内容 */
+function buildDailyContent(data: ReturnType<typeof getDailyTasks>): string {
   const lines = [`## 今日完成`];
   const done = data.today.filter((t: any) => t.status === 'done');
   if (!done.length) lines.push('- 无');
@@ -118,8 +159,8 @@ function buildDailyFallback(data: ReturnType<typeof getDailyTasks>): string {
   return lines.join('\n');
 }
 
-/** 无 LLM 时的模板降级周报 */
-function buildWeeklyFallback(data: ReturnType<typeof getWeeklyTasks>): string {
+/** 预填周报内容 */
+function buildWeeklyContent(data: ReturnType<typeof getWeeklyTasks>): string {
   const lines = [`## 本周完成`];
   if (!data.doneProjects.length && !data.doneTasks.length) lines.push('- 无');
   data.doneProjects.forEach((p: any) => lines.push(`- 完成项目：${p.name}`));
@@ -131,11 +172,12 @@ function buildWeeklyFallback(data: ReturnType<typeof getWeeklyTasks>): string {
     lines.push('', '## 风险与逾期');
     data.overdueTasks.forEach((t: any) => lines.push(`- ${t.title}（ddl ${t.ddl?.slice(0, 10)}）`));
   }
+  lines.push('', '## 下周计划', '- （待补充）');
   return lines.join('\n');
 }
 
-/** 无 LLM 时的模板降级月报 */
-function buildMonthlyFallback(data: ReturnType<typeof getMonthlyTasks>): string {
+/** 预填月报内容 */
+function buildMonthlyContent(data: ReturnType<typeof getMonthlyTasks>): string {
   const lines = [`## 本月完成`];
   if (!data.doneProjects.length && !data.doneTasks.length) lines.push('- 无');
   data.doneProjects.forEach((p: any) => lines.push(`- 完成项目：${p.name}`));
@@ -147,6 +189,7 @@ function buildMonthlyFallback(data: ReturnType<typeof getMonthlyTasks>): string 
     lines.push('', '## 逾期风险');
     data.overdueTasks.forEach((t: any) => lines.push(`- ${t.title}（ddl ${t.ddl?.slice(0, 10)}）`));
   }
+  lines.push('', '## 下月计划', '- （待补充）');
   return lines.join('\n');
 }
 
@@ -169,6 +212,15 @@ export default async function reportRoutes(app: FastifyInstance) {
     return db.prepare(`SELECT ${REPORT_COLS} FROM reports ORDER BY date DESC, created_at DESC`).all();
   });
 
+  // 按类型+日期查找
+  app.get('/api/reports/by-date', async (req, reply) => {
+    const { type, date } = req.query as { type?: string; date?: string };
+    if (!type || !date) return reply.code(400).send({ error: 'type 和 date 必填' });
+    const report = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE type = ? AND date = ?`).get(type, date);
+    if (!report) return reply.code(404).send({ error: '报告不存在' });
+    return report;
+  });
+
   // 单条报告
   app.get('/api/reports/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -177,65 +229,68 @@ export default async function reportRoutes(app: FastifyInstance) {
     return report;
   });
 
-  // 生成日报
-  app.post('/api/reports/daily', async (req) => {
+  // 创建报告（同一类型同一日期已存在则返回已有）
+  app.post('/api/reports', async (req, reply) => {
     const b = (req.body ?? {}) as ReportBody;
-    const date = b.date ?? localDate();
-    const data = getDailyTasks();
-    let md = buildDailyFallback(data);
-    try {
-      // 日报暂时用 fallback，后期可接 LLM
-    } catch {
-      // ignore
+    if (!b.type || !b.date) return reply.code(400).send({ error: 'type 和 date 必填' });
+
+    const existing = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE type = ? AND date = ?`).get(b.type, b.date);
+    if (existing) return existing;
+
+    let md: string;
+    let title: string;
+    if (b.type === 'daily') {
+      const data = getDailyTasks();
+      md = buildDailyContent(data);
+      title = `日报 ${b.date}`;
+    } else if (b.type === 'weekly') {
+      const data = getWeeklyTasks();
+      md = buildWeeklyContent(data);
+      title = `周报 ${b.date}`;
+      try {
+        const llmResult = await generateWeeklyReport({
+          weekStart: data.date.split(' ~ ')[0],
+          weekEnd: data.date.split(' ~ ')[1],
+          doneProjects: data.doneProjects.map((p: any) => ({ name: p.name, type: p.type })),
+          doneTasks: data.doneTasks.map((t: any) => ({ title: t.title, project_name: t.project_name })),
+          doingProjects: data.doingProjects.map((p: any) => ({ name: p.name, type: p.type, done_count: p.done_count, total_count: p.total_count })),
+          doingTasks: [],
+          overdueTasks: data.overdueTasks.map((t: any) => ({ title: t.title, project_name: t.project_name, ddl: t.ddl })),
+          followUps: [],
+        });
+        if (llmResult) md = llmResult;
+      } catch {
+        // fallback already set
+      }
+    } else {
+      const data = getMonthlyTasks();
+      md = buildMonthlyContent(data);
+      title = `月报 ${b.date}`;
     }
+
     const id = uuid();
     const ts = now();
+    const content = b.content ?? mdToTiptapJson(md);
     db.prepare(
-      `INSERT INTO reports (id,type,date,title,content,created_at) VALUES (?,?,?,?,?,?)`,
-    ).run(id, 'daily', date, `日报 ${date}`, md, ts);
-    return db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id);
+      `INSERT INTO reports (id,type,date,title,content,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+    ).run(id, b.type, b.date, b.title ?? title, content, ts, ts);
+    return reply.code(201).send(db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id));
   });
 
-  // 生成周报
-  app.post('/api/reports/weekly', async (req) => {
+  // 更新报告
+  app.patch('/api/reports/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const exist = db.prepare('SELECT id FROM reports WHERE id = ?').get(id);
+    if (!exist) return reply.code(404).send({ error: '报告不存在' });
     const b = (req.body ?? {}) as ReportBody;
-    const date = b.date ?? localDate();
-    const data = getWeeklyTasks();
-    let md = buildWeeklyFallback(data);
-    try {
-      const llmResult = await generateWeeklyReport({
-        weekStart: data.date.split(' ~ ')[0],
-        weekEnd: data.date.split(' ~ ')[1],
-        doneProjects: data.doneProjects.map((p: any) => ({ name: p.name, type: p.type })),
-        doneTasks: data.doneTasks.map((t: any) => ({ title: t.title, project_name: t.project_name })),
-        doingProjects: data.doingProjects.map((p: any) => ({ name: p.name, type: p.type, done_count: p.done_count, total_count: p.total_count })),
-        doingTasks: [],
-        overdueTasks: data.overdueTasks.map((t: any) => ({ title: t.title, project_name: t.project_name, ddl: t.ddl })),
-        followUps: [],
-      });
-      if (llmResult) md = llmResult;
-    } catch {
-      // fallback already set
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (b.title !== undefined) { sets.push('title = ?'); params.push(b.title.trim()); }
+    if (b.content !== undefined) { sets.push('content = ?'); params.push(b.content); }
+    if (sets.length) {
+      sets.push('updated_at = ?'); params.push(now(), id);
+      db.prepare(`UPDATE reports SET ${sets.join(',')} WHERE id = ?`).run(...params);
     }
-    const id = uuid();
-    const ts = now();
-    db.prepare(
-      `INSERT INTO reports (id,type,date,title,content,created_at) VALUES (?,?,?,?,?,?)`,
-    ).run(id, 'weekly', date, `周报 ${date}`, md, ts);
-    return db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id);
-  });
-
-  // 生成月报
-  app.post('/api/reports/monthly', async (req) => {
-    const b = (req.body ?? {}) as ReportBody;
-    const date = b.date ?? localDate();
-    const data = getMonthlyTasks();
-    const md = buildMonthlyFallback(data);
-    const id = uuid();
-    const ts = now();
-    db.prepare(
-      `INSERT INTO reports (id,type,date,title,content,created_at) VALUES (?,?,?,?,?,?)`,
-    ).run(id, 'monthly', date, `月报 ${date}`, md, ts);
     return db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id);
   });
 

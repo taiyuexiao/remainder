@@ -85,6 +85,9 @@ export function migrate() {
 
   // v8: 调研画布
   if ((db.pragma('user_version', { simple: true }) as number) < 8) migrateToV8();
+
+  // v9: 报告唯一约束（同一类型同一日期一条）
+  if ((db.pragma('user_version', { simple: true }) as number) < 9) migrateToV9();
 }
 
 /**
@@ -287,6 +290,18 @@ function migrateToV8() {
   `);
   db.pragma('user_version = 8');
 }
+
+/** v9 迁移：报告同一类型同一日期唯一，补 updated_at 列 */
+function migrateToV9() {
+  const cols = db.prepare('PRAGMA table_info(reports)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'updated_at')) {
+    db.exec(`ALTER TABLE reports ADD COLUMN updated_at TEXT`);
+    db.exec(`UPDATE reports SET updated_at = created_at WHERE updated_at IS NULL`);
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_type_date ON reports(type, date);`);
+  db.pragma('user_version = 9');
+}
+
 
 
 
