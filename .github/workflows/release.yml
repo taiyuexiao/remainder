@@ -13,4 +13,104 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo test
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server
+        run: pnpm --filter server build
+
+      - name: Build desktop app (no bundle)
+        working-directory: desktop
+        run: pnpm tauri build --no-bundle
+
+      - name: Install server production deps (hoisted)
+        working-directory: server
+        run: pnpm install --prod --config.node-linker=hoisted --config.dangerously-allow-all-builds=true
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $root = "dist-package/Remainder"
+          New-Item -ItemType Directory -Force "$root/app", "$root/node", "$root/server/data/exports", "$root/server/data/live2d-models" | Out-Null
+          Copy-Item desktop/src-tauri/target/release/remainder.exe "$root/app/"
+          Copy-Item "$env:ProgramFiles/nodejs/node.exe" "$root/node/"
+          Copy-Item -Recurse server/dist "$root/server/"
+          Copy-Item -Recurse server/node_modules "$root/server/"
+          Copy-Item server/package.json, server/.env.example "$root/server/"
+          Copy-Item server/data/live2d-models/README.txt "$root/server/data/live2d-models/"
+          Copy-Item -Recurse server/data/live2d-models/Hiyori "$root/server/data/live2d-models/" -ErrorAction SilentlyContinue
+          Copy-Item packaging/* "$root/"
+
+      - name: Zip package
+        shell: pwsh
+        run: |
+          cd dist-package
+          tar -a -c -f Remainder-portable-win-x64.zip Remainder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remainder-win-x64
+          path: dist-package/Remainder-portable-win-x64.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build server
+        run: pnpm --filter server build
+
+      - name: Build desktop app
+        working-directory: desktop
+        run: pnpm tauri build
+
+      - name: Install server production deps (hoisted)
+        working-directory: server
+        run: pnpm install --prod --config.node-linker=hoisted --config.dangerously-allow-all-builds=true
+
+      - name: Assemble portable package
+        run: |
+          root="dist-package/Remainder"
+          mkdir -p "$root/app" "$root/node" "$root/server/data/exports" "$root/server/data/live2d-models"
+          cp -R desktop/src-tauri/target/release/bundle/macos/Remainder.app "$root/app/"
+          cp "$(which node)" "$root/node/node"
+          chmod +x "$root/node/node"
+          cp -R server/dist "$root/server/"
+          cp -R server/node_modules "$root/server/"
+          cp server/package.json server/.env.example "$root/server/"
+          cp server/data/live2d-models/README.txt "$root/server/data/live2d-models/" 2>/dev/null || true
+          cp -R server/data/live2d-models/Hiyori "$root/server/data/live2d-models/" 2>/dev/null || true
+          cp packaging/start.sh packaging/README.txt "$root/"
+          chmod +x "$root/start.sh"
+
+      - name: Zip package
+        run: |
+          cd dist-package
+          tar -a -c -f Remainder-portable-mac-arm64.zip Remainder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remainder-mac-arm64
+          path: dist-package/Remainder-portable-mac-arm64.zip
