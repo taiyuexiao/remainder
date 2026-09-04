@@ -141,6 +141,15 @@ fn main() {
         .build();
 
     tauri::Builder::default()
+        // 单实例：再次启动（双击桌面图标/exe）时把主窗口唤到前台，而不是静默退出
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![read_clipboard_html])
         .plugin(shortcut_plugin)
         .plugin(tauri_plugin_notification::init())
@@ -174,7 +183,33 @@ fn main() {
                     }
                 }
             }
-            Ok(())
+            #[cfg(not(target_os = "windows"))]
+    {
+        use tauri::Manager;
+        // 非 Windows：无 Win32 桌面层可嵌，降级为置顶悬浮窗（Mac/Linux 可用形态）
+        if let Some(widget) = app.get_webview_window("widget") {
+            let _ = widget.set_always_on_top(true);
+            if let Ok(Some(monitor)) = widget.current_monitor() {
+                let scale = monitor.scale_factor();
+                let logical_w = monitor.size().width as f64 / scale;
+                let x = (logical_w - 300.0 - 40.0).max(0.0);
+                let _ = widget.set_position(tauri::Position::Logical(
+                    tauri::LogicalPosition::new(x, 100.0),
+                ));
+            }
+        }
+        if let Some(pet) = app.get_webview_window("pet") {
+            if let Ok(Some(monitor)) = pet.current_monitor() {
+                let scale = monitor.scale_factor();
+                let lw = monitor.size().width as f64 / scale;
+                let lh = monitor.size().height as f64 / scale;
+                let _ = pet.set_position(tauri::Position::Logical(
+                    tauri::LogicalPosition::new(lw - 140.0 - 30.0, lh - 200.0 - 60.0),
+                ));
+            }
+        }
+    }
+    Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

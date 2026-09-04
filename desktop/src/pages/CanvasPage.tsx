@@ -1,5 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type CanvasBoard, type CanvasBoardWithItems, type CanvasItem } from '../api/client';
+import { useEditor, EditorContent, type Editor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Highlight from '@tiptap/extension-highlight';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
+import { Extension } from '@tiptap/core';
+
+/** 字号支持：给 textStyle 标记加 fontSize 属性（工具栏用 setMark 设置） */
+const FontSizeAttr = Extension.create({
+  name: 'fontSizeAttr',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['textStyle'],
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (el: HTMLElement) => el.style.fontSize || null,
+            renderHTML: (attrs: Record<string, string | null>) =>
+              attrs.fontSize ? { style: `font-size: ${attrs.fontSize}` } : {},
+          },
+        },
+      },
+    ];
+  },
+});
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** 旧纯文本内容 → HTML 段落；已是 HTML 的原样返回 */
+const toHtml = (content: string) => {
+  const s = content.trimStart();
+  if (s.startsWith('<')) return content;
+  return content.split('\n').map((line) => `<p>${escapeHtml(line) || '<br>'}</p>`).join('');
+};
 
 export default function CanvasPage() {
   const [boards, setBoards] = useState<CanvasBoard[]>([]);
@@ -121,8 +158,12 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [draggingItem, setDraggingItem] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  // 卡片角标拉伸：记录起始鼠标位置与原始宽高
+  const resizeRef = useRef<{ id: string; startX: number; startY: number; w: number; h: number } | null>(null);
+  const [resizingId, setResizingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [tempContent, setTempContent] = useState('');
 
   useEffect(() => {
     setItems(board.items);
@@ -179,7 +220,34 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
     setDragOffset({ x: worldX - item.x, y: worldY - item.y });
   };
 
+  // 空白处按住左键拖动 = 平移整个画布（卡片上的 mousedown 已 stopPropagation）
+  const onCanvasMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    setPanning(true);
+  };
+
   const onMouseMove = (e: React.MouseEvent) => {
+    if (resizingId && resizeRef.current) {
+      const r = resizeRef.current;
+      const dw = (e.clientX - r.startX) / scale;
+      const dh = (e.clientY - r.startY) / scale;
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === r.id
+            ? { ...it, w: Math.max(160, r.w + dw), h: Math.max(90, r.h + dh) }
+            : it,
+        ),
+      );
+      return;
+    }
+    if (panning) {
+      setPan({
+        x: panStart.current.panX + (e.clientX - panStart.current.x),
+        y: panStart.current.panY + (e.clientY - panStart.current.y),
+      });
+      return;
+    }
     if (!draggingItem) return;
     const rect = canvasRef.current!.getBoundingClientRect();
     const worldX = (e.clientX - rect.left - pan.x) / scale;
@@ -192,6 +260,20 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
   };
 
   const onMouseUp = async () => {
+    setPanning(false);
+    if (resizingId && resizeRef.current) {
+      const item = items.find((it) => it.id === resizingId);
+      if (item) {
+        try {
+          await api.updateCanvasItem(resizingId, { w: Math.round(item.w), h: Math.round(item.h) });
+        } catch (e) {
+          alert((e as Error).message);
+        }
+      }
+      resizeRef.current = null;
+      setResizingId(null);
+      return;
+    }
     if (draggingItem) {
       const item = items.find((it) => it.id === draggingItem);
       if (item) {
@@ -207,11 +289,10 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
 
   const startEdit = (item: CanvasItem) => {
     setEditingId(item.id);
-    setTempContent(item.content);
   };
 
-  const saveEdit = async (id: string) => {
-    await updateItem(id, { content: tempContent });
+  const saveEdit = async (id: string, html: string) => {
+    await updateItem(id, { content: html });
     setEditingId(null);
   };
 
@@ -232,17 +313,20 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
         </button>
         <span className="text-slate-400">{Math.round(scale * 100)}%</span>
         <span className="flex-1" />
-        <span className="text-slate-400">双击空白处创建卡片，拖拽移动，双击卡片编辑</span>
+        <span className="text-slate-400">按住空白处拖动平移画布，双击空白创建卡片，拖拽移动卡片，双击卡片编辑</span>
       </div>
 
       {/* 画布 */}
       <div
         ref={canvasRef}
-        className="flex-1 relative overflow-hidden bg-slate-100 cursor-default"
+        className={`flex-1 relative overflow-hidden bg-slate-100 ${panning ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{
           backgroundImage: 'radial-gradient(circle, #cbd5e1 1px, transparent 1px)',
           backgroundSize: '24px 24px',
+          // 网点随平移移动，有视差感
+          backgroundPosition: `${pan.x}px ${pan.y}px`,
         }}
+        onMouseDown={onCanvasMouseDown}
         onDoubleClick={onDoubleClick}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -278,16 +362,19 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
                   </div>
                 )
               ) : editingId === item.id ? (
-                <textarea
-                  autoFocus
-                  className="w-full h-full p-3 text-xs focus:outline-none resize-none"
-                  value={tempContent}
-                  onChange={(e) => setTempContent(e.target.value)}
-                  onBlur={() => saveEdit(item.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && e.ctrlKey) saveEdit(item.id);
-                    if (e.key === 'Escape') setEditingId(null);
+                <CardRichEditor
+                  initial={item.content}
+                  onSave={(html) => void saveEdit(item.id, html)}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : item.content.trimStart().startsWith('<') ? (
+                <div
+                  className="card-rich w-full h-full p-3 text-xs text-slate-700 overflow-hidden"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startEdit(item);
                   }}
+                  dangerouslySetInnerHTML={{ __html: item.content }}
                 />
               ) : (
                 <div
@@ -299,6 +386,24 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
                 >
                   {item.content || '双击编辑…'}
                 </div>
+              )}
+
+              {/* 拉伸角标：右下角拖拽调整宽高 */}
+              {editingId !== item.id && (
+                <div
+                  className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-0 group-hover:opacity-70"
+                  style={{
+                    background: 'linear-gradient(135deg, transparent 50%, #94a3b8 50%)',
+                    borderBottomRightRadius: '0.65rem',
+                  }}
+                  title="拖拽调整大小"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    resizeRef.current = { id: item.id, startX: e.clientX, startY: e.clientY, w: item.w, h: item.h };
+                    setResizingId(item.id);
+                  }}
+                />
               )}
 
               {/* 工具按钮 */}
@@ -343,6 +448,158 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/* ============ 卡片富文本编辑器（Tiptap） ============ */
+
+const FONT_FAMILIES: [string, string][] = [
+  ['默认字体', ''],
+  ['宋体', '宋体, SimSun, serif'],
+  ['楷体', '楷体, KaiTi, serif'],
+  ['黑体', '黑体, SimHei, sans-serif'],
+  ['等宽', 'Consolas, monospace'],
+];
+
+const FONT_SIZES: [string, string][] = [
+  ['默认', ''],
+  ['12px', '12px'],
+  ['14px', '14px'],
+  ['16px', '16px'],
+  ['20px', '20px'],
+  ['24px', '24px'],
+  ['32px', '32px'],
+];
+
+function CardToolbar({ editor, onDone }: { editor: Editor; onDone: () => void }) {
+  // 按钮 onMouseDown preventDefault：保持编辑器选区不丢失
+  const hold = (e: React.MouseEvent) => e.preventDefault();
+  const btn = (active: boolean) =>
+    `px-1.5 py-0.5 rounded text-[11px] ${active ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-slate-100 text-slate-600'}`;
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap px-1.5 py-1 border-b border-slate-100 bg-slate-50/80 shrink-0">
+      <select
+        className="text-[11px] bg-transparent outline-none max-w-[70px]"
+        title="字体"
+        onMouseDown={hold}
+        value={editor.getAttributes('textStyle').fontFamily ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          const chain = editor.chain().focus();
+          if (v) chain.setFontFamily(v).run();
+          else chain.unsetFontFamily().run();
+        }}
+      >
+        {FONT_FAMILIES.map(([label, v]) => (
+          <option key={label} value={v}>{label}</option>
+        ))}
+      </select>
+      <select
+        className="text-[11px] bg-transparent outline-none"
+        title="字号"
+        onMouseDown={hold}
+        value={editor.getAttributes('textStyle').fontSize ?? ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          const chain = editor.chain().focus();
+          if (v) chain.setMark('textStyle', { fontSize: v }).run();
+          else chain.setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
+        }}
+      >
+        {FONT_SIZES.map(([label, v]) => (
+          <option key={label} value={v}>{label}</option>
+        ))}
+      </select>
+      <button onMouseDown={hold} onClick={() => editor.chain().focus().toggleBold().run()} className={btn(editor.isActive('bold'))} title="加粗">
+        <b>B</b>
+      </button>
+      <button onMouseDown={hold} onClick={() => editor.chain().focus().toggleItalic().run()} className={btn(editor.isActive('italic'))} title="倾斜">
+        <i>I</i>
+      </button>
+      <label className="flex items-center gap-0.5 text-[11px] text-slate-500 cursor-pointer" title="字体颜色" onMouseDown={hold}>
+        <span style={{ color: editor.getAttributes('textStyle').color || '#334155' }}>A</span>
+        <input
+          type="color"
+          className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer"
+          value={editor.getAttributes('textStyle').color || '#334155'}
+          onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+        />
+      </label>
+      <label className="flex items-center gap-0.5 text-[11px] text-slate-500 cursor-pointer" title="高亮背景" onMouseDown={hold}>
+        <span className="px-0.5 rounded" style={{ background: '#fef08a' }}>A</span>
+        <input
+          type="color"
+          className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer"
+          defaultValue="#fef08a"
+          onChange={(e) => editor.chain().focus().setHighlight({ color: e.target.value }).run()}
+        />
+      </label>
+      <button onMouseDown={hold} onClick={() => editor.chain().focus().unsetHighlight().run()} className={btn(false)} title="取消高亮">
+        🧽
+      </button>
+      <span className="flex-1" />
+      <button onMouseDown={hold} onClick={onDone} className="px-1.5 py-0.5 rounded text-[11px] bg-indigo-500 text-white hover:bg-indigo-600" title="保存（Ctrl+Enter）">
+        ✓ 完成
+      </button>
+    </div>
+  );
+}
+
+function CardRichEditor({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: string;
+  onSave: (html: string) => void;
+  onCancel: () => void;
+}) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: false, codeBlock: false }),
+      Highlight.configure({ multicolor: true }),
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSizeAttr,
+    ],
+    content: toHtml(initial),
+    autofocus: 'end',
+    editorProps: {
+      attributes: {
+        class: 'card-rich focus:outline-none p-3 text-xs text-slate-700 flex-1 overflow-y-auto',
+      },
+      handleKeyDown: (_view, event) => {
+        if (event.key === 'Escape') {
+          onCancel();
+          return true;
+        }
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          onSave(editor?.getHTML() ?? '');
+          return true;
+        }
+        return false;
+      },
+    },
+  });
+
+  if (!editor) return null;
+  return (
+    <div
+      className="w-full h-full flex flex-col cursor-text"
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        // 点击工具栏不触发保存；真正点到卡片外才保存
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          onSave(editor.getHTML());
+        }
+      }}
+    >
+      <CardToolbar editor={editor} onDone={() => onSave(editor.getHTML())} />
+      <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
     </div>
   );
 }

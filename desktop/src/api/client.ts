@@ -229,6 +229,7 @@ function qsOf(q?: Record<string, string | undefined>) {
 }
 
 export const api = {
+  health: () => req<{ status: string }>('/api/health'),
   listTasks: (q?: { projectId?: string; type?: string; status?: string; date?: string }) =>
     req<Task[]>(`/api/tasks${qsOf(q)}`),
   today: () => req<TodayView>('/api/tasks/today'),
@@ -334,7 +335,96 @@ export const api = {
     req<CanvasItem>(`/api/canvas-items/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteCanvasItem: (id: string) =>
     req<{ deleted: string }>(`/api/canvas-items/${id}`, { method: 'DELETE' }),
+  // Live2D 桌宠模型（M12）
+  listLive2dModels: () => req<Live2dModelList>('/api/live2d/models'),
+  openLive2dFolder: () =>
+    req<{ ok: boolean; root: string }>('/api/live2d/open-folder', { method: 'POST' }),
+  // 文档导出到本地 Markdown
+  exportDocument: (id: string) =>
+    req<{ path: string }>(`/api/documents/${id}/export`, { method: 'POST' }),
+  // 用系统浏览器打开外部链接
+  openExternal: (url: string) =>
+    req<{ ok: boolean }>('/api/open-external', { method: 'POST', body: JSON.stringify({ url }) }),
+  // 就选中内容提问（M16）
+  askLlm: (text: string, question: string) =>
+    req<{ result: string }>('/api/llm/ask', { method: 'POST', body: JSON.stringify({ text, question }) }),
+  // AI 排版（M16）
+  formatDoc: (content: string) =>
+    req<{ result: string }>('/api/llm/format', { method: 'POST', body: JSON.stringify({ content }) }),
+  // 错别字（M18）：流处理修正 / 批处理清单
+  fixTypos: (text: string) =>
+    req<{ result: string }>('/api/llm/typos', { method: 'POST', body: JSON.stringify({ text, mode: 'fix' }) }),
+  checkTypos: (text: string) =>
+    req<{ issues: TypoIssue[] }>('/api/llm/typos', { method: 'POST', body: JSON.stringify({ text, mode: 'check' }) }),
+  // AI 助手会话（M19）
+  listConversations: () => req<Conversation[]>('/api/conversations'),
+  createConversation: () => req<Conversation>('/api/conversations', { method: 'POST' }),
+  getConversation: (id: string) => req<ConversationDetail>(`/api/conversations/${id}`),
+  deleteConversation: (id: string) =>
+    req<{ deleted: string }>(`/api/conversations/${id}`, { method: 'DELETE' }),
+  sendChatMessage: (convId: string, content: string) =>
+    req<{ id: string; content: string; applied: string[] }>(`/api/conversations/${convId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  // 导入本地文件为文档（md/txt/docx/pdf）
+  importDocument: async (file: File): Promise<Document> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`${API}/api/documents/import`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+    return data;
+  },
 };
+
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  last_message?: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  actions: string[];
+  created_at: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[];
+}
+
+export interface TypoIssue {
+  before: string;
+  after: string;
+  context: string;
+}
+
+/** 打开外部链接：Tauri 走 server（explorer），纯浏览器用 window.open */
+export async function openExternalLink(url: string): Promise<void> {
+  if ('__TAURI_INTERNALS__' in window) {
+    try {
+      await api.openExternal(url);
+      return;
+    } catch { /* 回落 window.open */ }
+  }
+  window.open(url, '_blank', 'noopener');
+}
+
+export interface Live2dModelInfo {
+  name: string;
+  url: string;
+  format: 'cubism4' | 'cubism2';
+}
+
+export interface Live2dModelList {
+  models: Live2dModelInfo[];
+  root: string;
+}
 
 export const TYPE_LABEL: Record<TaskType, string> = {
   main: '主线',

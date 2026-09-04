@@ -91,6 +91,90 @@ export async function polishText(text: string, instruction?: string): Promise<st
   );
 }
 
+/** 就选中内容向 LLM 提问（M16；未配置返回 null） */
+export async function askAboutText(text: string, question: string): Promise<string | null> {
+  return chat(
+    '你是用户的阅读助手。用户选中了文档中的一段内容并向你提问。请基于该内容准确、简洁地回答（一两段话以内）；内容里没有的信息要明确说明，不要编造。',
+    `选中内容：\n${text}\n\n问题：${question}`,
+    0.4,
+  );
+}
+
+/** 文档排版（M16）：规范标题层级与列表结构，不改实质内容；未配置返回 null */
+export async function formatDocument(text: string): Promise<string | null> {
+  return chat(
+    '你是文档排版助手。用户会给你一份文档全文（可能带 # 标题、- 列表等部分 Markdown 标记）。要求：' +
+      '1) 规范标题层级（# / ## / ###，层级合理递进，不跳级）；' +
+      '2) 明显属于列举的内容用 - 或 1. 标记为列表；' +
+      '3) 不改动任何实质文字，不增删句子，不输出解释。直接输出整理后的全文。',
+    text,
+    0.2,
+  );
+}
+
+/** 错别字流处理（M18）：只修错别字，其他一律不动；无错别字返回原文；未配置返回 null */
+export async function fixTypos(text: string): Promise<string | null> {
+  return chat(
+    '你是错别字修正器。只修正文本中的错别字（同音字、形近字、多字漏字），不改动其他任何内容（语序、标点、格式、专有名词、数字、英文）。如果没有错别字，原样返回输入文本。只输出最终文本，不要任何解释。',
+    text,
+    0.1,
+  );
+}
+
+/** 错别字批处理检查（M18）：返回 JSON 数组；未配置返回 null */
+export async function checkTypos(text: string): Promise<string | null> {
+  return chat(
+    '你是错别字检查器。找出文本中的错别字（同音字、形近字、多字漏字），不要挑语病、标点或风格问题，不要改专有名词和英文。' +
+      '输出 JSON 数组，每项形如 {"before":"错误的词","after":"正确的词","context":"包含错误词的原文短句（20字以内）"}。没有发现错别字就输出 []。只输出 JSON，不要输出其他任何内容。',
+    text,
+    0.1,
+  );
+}
+
+/** AI 助手动作（M19）：从自然语言中抽取的结构化操作 */
+export interface ChatAction {
+  action: 'create_task';
+  title: string;
+  type?: 'main' | 'side' | 'follow' | 'idea';
+  project?: string;
+  ddl?: string;
+  person?: string;
+  next_follow_date?: string;
+}
+
+/** AI 助手对话（M19）：闲聊 + 自然语言建任务。返回 {reply, actions}；未配置返回 null */
+export async function chatAssistant(
+  message: string,
+  today: string,
+  projectNames: string[],
+): Promise<{ reply: string; actions: ChatAction[] } | null> {
+  const raw = await chat(
+    `你是 Remainder 个人任务管理助手的对话引擎。今天是 ${today}。用户现有项目：${projectNames.join('、') || '（无）'}。` +
+      '如果用户的话中包含要创建任务/日程/计划/截止/提醒/催办的意图，在 actions 数组中给出结构化动作；纯闲聊则 actions 为空数组。' +
+      '动作格式：{"action":"create_task","title":"任务标题","type":"main|side|follow|idea",' +
+      '"project":"归属项目名（能对应到现有项目才填，否则省略）","ddl":"YYYY-MM-DD（有明确截止才填）",' +
+      '"person":"被催人（跟进型才填）","next_follow_date":"YYYY-MM-DD（跟进型才填）"}。' +
+      'type 判断：大块的开发/项目类任务=main；零散事项=side；需要催促别人推进的=follow；灵感想法=idea。' +
+      'reply 是给用户的自然语言回复（一两句话，确认你理解了；如果创建了任务，说明创建了什么）。' +
+      '只输出 JSON：{"reply":"...","actions":[...]}，不要输出其他任何内容。',
+    message,
+    0.3,
+  );
+  if (raw === null) return null;
+  try {
+    const m = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(m ? m[0] : raw);
+    return {
+      reply: typeof parsed.reply === 'string' ? parsed.reply : '好的。',
+      actions: Array.isArray(parsed.actions)
+        ? parsed.actions.filter((a: ChatAction) => a?.action === 'create_task' && a?.title?.trim())
+        : [],
+    };
+  } catch {
+    return { reply: raw.slice(0, 500), actions: [] };
+  }
+}
+
 /** 桌宠对话（蕾米埃尔人格；未配置 LLM 返回 null） */
 export async function petChat(message: string, todayHint?: string): Promise<string | null> {
   return chat(

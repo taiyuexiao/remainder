@@ -10,12 +10,16 @@ import SettingsPage from './pages/SettingsPage';
 import DocsPage from './pages/DocsPage';
 import ReportsPage from './pages/ReportsPage';
 import CanvasPage from './pages/CanvasPage';
+import TimelinePage from './pages/TimelinePage';
+import ChatPage from './pages/ChatPage';
 
-type NavKey = 'today' | 'calendar' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'settings';
+type NavKey = 'today' | 'assistant' | 'calendar' | 'timeline' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'settings';
 
 const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
   { key: 'today', label: '今日', icon: '☀️', hint: '' },
+  { key: 'assistant', label: 'AI 助手', icon: '🤖', hint: '' },
   { key: 'calendar', label: '日历', icon: '📅', hint: '' },
+  { key: 'timeline', label: '全景', icon: '🗺️', hint: '' },
   { key: 'tasks', label: '全部任务', icon: '📋', hint: '' },
   { key: 'follow', label: '跟进', icon: '🤝', hint: '' },
   { key: 'inbox', label: 'Inbox', icon: '💡', hint: '' },
@@ -29,6 +33,27 @@ const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
 export default function App() {
   const [nav, setNav] = useState<NavKey>('tasks');
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
+  // 后端就绪门：0=检查中 1=就绪 2=超时（避免后端启动慢时各页直接报"后端连接失败"）
+  const [backendState, setBackendState] = useState<0 | 1 | 2>(0);
+
+  useEffect(() => {
+    if (backendState === 1) return;
+    let timer: number;
+    let attempts = 0;
+    const poll = async () => {
+      try {
+        await api.health();
+        setBackendState(1);
+        return;
+      } catch {
+        attempts += 1;
+        if (attempts >= 30) { setBackendState(2); return; }
+        timer = window.setTimeout(poll, 1000);
+      }
+    };
+    poll();
+    return () => window.clearTimeout(timer);
+  }, [backendState]);
 
   // 浏览器环境下轮询提醒队列做 Toast；Tauri 环境由常驻桌面组件负责（WidgetPage 轮询+原生通知）
   const isTauriEnv = '__TAURI_INTERNALS__' in window;
@@ -65,6 +90,32 @@ export default function App() {
 
   const current = NAV.find((n) => n.key === nav)!;
 
+  // 后端未就绪：显示启动画面（页面在后端起来后再挂载，天然避免连接失败报错）
+  if (backendState !== 1) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-100 text-slate-500 gap-3">
+        {backendState === 0 ? (
+          <>
+            <div className="w-8 h-8 rounded-full border-2 border-indigo-200 border-t-indigo-500 animate-spin" />
+            <p className="text-sm">正在连接后端服务…</p>
+            <p className="text-xs text-slate-400">首次启动可能需要几秒钟</p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-red-500">后端服务连接失败</p>
+            <p className="text-xs text-slate-400">请确认 Remainder Server 已启动（可双击桌面图标重试）</p>
+            <button
+              onClick={() => setBackendState(0)}
+              className="mt-2 rounded-lg bg-indigo-500 text-white text-sm px-4 py-1.5 hover:bg-indigo-600"
+            >
+              重试
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex bg-slate-100 text-slate-800 overflow-hidden">
       {/* 左侧导航 */}
@@ -96,8 +147,12 @@ export default function App() {
       <main className="flex-1 min-w-0">
         {nav === 'today' ? (
           <TodayPage />
+        ) : nav === 'assistant' ? (
+          <ChatPage />
         ) : nav === 'calendar' ? (
           <CalendarPage />
+        ) : nav === 'timeline' ? (
+          <TimelinePage />
         ) : nav === 'tasks' ? (
           <TasksPage />
         ) : nav === 'follow' ? (

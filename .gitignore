@@ -10,3 +10,10 @@ desktop/dist/
 08da8a034c799df706f4976b3532ef44.png
 b9d1bdd2a3a7e9416cd64e0f13ab5103.jpg
 desktop/src-tauri/gen/schemas/
+dist-package/
+*.log
+*.png
+!desktop/public/**/*.png
+!desktop/src-tauri/icons/**/*.png
+!clipper/icons/**/*.png
+!icon-source.png

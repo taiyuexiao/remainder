@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Remainder Clipper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "选中网页内容，右键同步到 Remainder 剪藏箱",
   "permissions": ["contextMenus", "activeTab", "scripting", "notifications"],
   "host_permissions": ["http://127.0.0.1:3210/*", "http://localhost/*"],

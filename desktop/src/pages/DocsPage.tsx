@@ -1,6 +1,19 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Highlight from '@tiptap/extension-highlight';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
+import { FontSizeAttr } from '../editor/textStyle';
+import FloatToolbar from '../editor/FloatToolbar';
+import OutlinePanel from '../editor/OutlinePanel';
+import BlockHandle from '../editor/BlockHandle';
+import { SlashCommand } from '../editor/slashCommand';
+import { parseTableText, rowsToTableHtml } from '../editor/tableDetect';
+import { extractStructuredText, markdownToDoc } from '../editor/mdConvert';
+import { treeDragStore } from '../editor/treeDragStore';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Table from '@tiptap/extension-table';
@@ -9,7 +22,7 @@ import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
 import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
-import { api, API_BASE, type Document, type DocumentInput, type DocFolder } from '../api/client';
+import { api, API_BASE, openExternalLink, type Document, type DocumentInput, type DocFolder, type TypoIssue } from '../api/client';
 
 const emptyDocContent = JSON.stringify({
   type: 'doc',
@@ -62,6 +75,8 @@ export default function DocsPage() {
   const [error, setError] = useState('');
   const [organizeOpen, setOrganizeOpen] = useState(false);
   const [treeKey, setTreeKey] = useState(0);
+  // 手动拖拽状态（幽灵框）
+  const drag = useSyncExternalStore(treeDragStore.subscribe, treeDragStore.get);
 
   const loadFolders = useCallback(async () => {
     try {
@@ -117,6 +132,28 @@ export default function DocsPage() {
 
   const cancelCreate = () => setCreating(null);
 
+  // 拖拽移动文档到文件夹（folderId=null 移回根级）
+  const moveDoc = async (docId: string, folderId: string | null) => {
+    try {
+      await api.updateDocument(docId, { folderId });
+      await refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  // 导入本地文件（M19）
+  const importFile = async (file: File) => {
+    try {
+      const doc = await api.importDocument(file);
+      await refresh();
+      setSelectedDocId(doc.id);
+      setSelectedFolderId(null);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
   const finishCreate = async (name: string) => {
     if (!creating) return;
     const { type, parentId } = creating;
@@ -142,7 +179,7 @@ export default function DocsPage() {
       <aside className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col">
         <header className="px-3 py-3 border-b border-slate-200 flex items-center justify-between">
           <h2 className="font-semibold text-sm">文档</h2>
-          <NewDropdown onCreate={startCreate} />
+          <NewDropdown onCreate={startCreate} onImport={importFile} />
         </header>
         {error && <div className="px-3 py-2 text-xs text-red-500 bg-red-50">{error}</div>}
         <div className="flex-1 overflow-y-auto py-2">
@@ -157,6 +194,7 @@ export default function DocsPage() {
             onSelectDoc={selectDoc}
             onRefresh={refresh}
             onStartCreate={startCreate}
+            onMoveDoc={moveDoc}
             onCancelCreate={cancelCreate}
             onFinishCreate={finishCreate}
           />
@@ -200,13 +238,30 @@ export default function DocsPage() {
           onApplied={refresh}
         />
       )}
+
+      {/* 拖拽幽灵框（跟随指针） */}
+      {drag.active && drag.docId && (
+        <div
+          className="fixed z-50 pointer-events-none rounded-lg bg-white shadow-lg border border-indigo-200 px-3 py-1.5 text-xs text-slate-700"
+          style={{ left: drag.x + 12, top: drag.y + 12, opacity: 0.92 }}
+        >
+          📝 {drag.title}
+        </div>
+      )}
     </div>
   );
 }
 
-function NewDropdown({ onCreate }: { onCreate: (type: 'folder' | 'doc') => void }) {
+function NewDropdown({
+  onCreate,
+  onImport,
+}: {
+  onCreate: (type: 'folder' | 'doc') => void;
+  onImport: (file: File) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -243,8 +298,28 @@ function NewDropdown({ onCreate }: { onCreate: (type: 'folder' | 'doc') => void 
           >
             <span>📝</span> 文档
           </button>
+          <button
+            onClick={() => {
+              setOpen(false);
+              fileRef.current?.click();
+            }}
+            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+          >
+            <span>📥</span> 导入文件
+          </button>
         </div>
       )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".md,.markdown,.txt,.docx,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onImport(f);
+          e.target.value = '';
+        }}
+      />
     </div>
   );
 }
@@ -314,6 +389,7 @@ function FolderTreeRoot({
   onSelectDoc,
   onRefresh,
   onStartCreate,
+  onMoveDoc,
   onCancelCreate,
   onFinishCreate,
 }: {
@@ -327,12 +403,13 @@ function FolderTreeRoot({
   onSelectDoc: (id: string) => void;
   onRefresh: () => void;
   onStartCreate: (type: 'folder' | 'doc', parentId: string | null) => void;
+  onMoveDoc: (docId: string, folderId: string | null) => void;
   onCancelCreate: () => void;
   onFinishCreate: (name: string) => Promise<void>;
 }) {
   const roots = useMemo(() => folders.filter((f) => f.parent_id === null), [folders]);
   return (
-    <div className="px-2 space-y-0.5">
+    <div className="px-2 space-y-0.5 min-h-full" data-tree-root>
       {roots.map((f) => (
         <FolderTreeNode
           key={f.id}
@@ -345,6 +422,7 @@ function FolderTreeRoot({
           onSelectDoc={onSelectDoc}
           onRefresh={onRefresh}
           onStartCreate={onStartCreate}
+          onMoveDoc={onMoveDoc}
           onCancelCreate={onCancelCreate}
           onFinishCreate={onFinishCreate}
         />
@@ -355,6 +433,7 @@ function FolderTreeRoot({
           doc={d}
           selectedDocId={selectedDocId}
           onSelect={onSelectDoc}
+          onMoveDoc={onMoveDoc}
         />
       ))}
       {creating && creating.parentId === null && (
@@ -378,6 +457,7 @@ function FolderTreeNode({
   onSelectDoc,
   onRefresh,
   onStartCreate,
+  onMoveDoc,
   onCancelCreate,
   onFinishCreate,
 }: {
@@ -390,12 +470,15 @@ function FolderTreeNode({
   onSelectDoc: (id: string) => void;
   onRefresh: () => void;
   onStartCreate: (type: 'folder' | 'doc', parentId: string | null) => void;
+  onMoveDoc: (docId: string, folderId: string | null) => void;
   onCancelCreate: () => void;
   onFinishCreate: (name: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<{ folders: DocFolder[]; docs: Document[] } | null>(null);
   const [loading, setLoading] = useState(false);
+  // 手动拖拽：本行是否为悬停目标
+  const dragHover = useSyncExternalStore(treeDragStore.subscribe, () => treeDragStore.get().hover);
 
   const reloadChildren = useCallback(async () => {
     setLoading(true);
@@ -456,8 +539,13 @@ function FolderTreeNode({
   return (
     <div>
       <div
+        data-folder-id={folder.id}
         className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
-          selectedFolderId === folder.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700 hover:bg-slate-50'
+          dragHover === folder.id
+            ? 'bg-indigo-100 ring-1 ring-indigo-300 text-indigo-700'
+            : selectedFolderId === folder.id
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-700 hover:bg-slate-50'
         }`}
         onClick={() => {
           onSelectFolder(folder.id);
@@ -514,12 +602,13 @@ function FolderTreeNode({
               onSelectDoc={onSelectDoc}
               onRefresh={onRefresh}
               onStartCreate={onStartCreate}
+              onMoveDoc={onMoveDoc}
               onCancelCreate={onCancelCreate}
               onFinishCreate={onFinishCreate}
             />
           ))}
           {children?.docs.map((d) => (
-            <DocTreeNode key={d.id} doc={d} selectedDocId={selectedDocId} onSelect={onSelectDoc} />
+            <DocTreeNode key={d.id} doc={d} selectedDocId={selectedDocId} onSelect={onSelectDoc} onMoveDoc={onMoveDoc} />
           ))}
           {creating && creating.parentId === folder.id && (
             <InlineCreator type={creating.type} onCancel={onCancelCreate} onFinish={onFinishCreate} />
@@ -537,14 +626,56 @@ function DocTreeNode({
   doc,
   selectedDocId,
   onSelect,
+  onMoveDoc,
 }: {
   doc: Document;
   selectedDocId: string | null;
   onSelect: (id: string) => void;
+  onMoveDoc: (docId: string, folderId: string | null) => void;
 }) {
+  // 鼠标自实现拖拽（HTML5 DnD 在 Tauri WebView2 不稳定）：
+  // 位移 >6px 进入拖拽态，elementFromPoint 判定悬停目标，松手执行移动；未位移 = 单击选中
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+    const onMove = (ev: MouseEvent) => {
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 6) {
+        moved = true;
+        treeDragStore.set({ docId: doc.id, title: doc.title || '未命名', active: true });
+      }
+      if (moved) {
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const folderRow = el?.closest('[data-folder-id]');
+        const rootEl = el?.closest('[data-tree-root]');
+        treeDragStore.set({
+          x: ev.clientX,
+          y: ev.clientY,
+          hover: folderRow ? folderRow.getAttribute('data-folder-id') : rootEl ? 'root' : null,
+        });
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (!moved) {
+        onSelect(doc.id);
+        return;
+      }
+      const { hover } = treeDragStore.get();
+      treeDragStore.reset();
+      if (hover === 'root') onMoveDoc(doc.id, null);
+      else if (hover) onMoveDoc(doc.id, hover);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
     <div
-      onClick={() => onSelect(doc.id)}
+      onMouseDown={onMouseDown}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer text-sm ${
         selectedDocId === doc.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'
       }`}
@@ -764,6 +895,21 @@ function DocEditorShell({
           ← 返回
         </button>
         <span className="text-sm text-slate-400">编辑文档</span>
+        <span className="flex-1" />
+        <button
+          onClick={async () => {
+            try {
+              const { path } = await api.exportDocument(docId);
+              alert(`已导出到本地：${path}`);
+            } catch (e) {
+              alert((e as Error).message);
+            }
+          }}
+          className="text-xs rounded-md bg-slate-100 text-slate-600 px-2.5 py-1.5 hover:bg-slate-200"
+          title="导出为 Markdown 到本地 exports 目录"
+        >
+          ⬇ 导出到本地
+        </button>
       </header>
       <DocEditor doc={doc} folders={folders} onChange={onChange} />
     </div>
@@ -784,18 +930,32 @@ function DocEditor({
   const [lastSaved, setLastSaved] = useState(doc.updated_at);
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 询问 LLM 面板（M16）：选中内容 + 提问 → 回答可补充/替换/评论进文档
+  const [ai, setAi] = useState<{
+    text: string; from: number; to: number;
+    question: string; answer: string; loading: boolean;
+  } | null>(null);
+  // 大纲侧栏（M21）
+  const [outlineOpen, setOutlineOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
       Image,
-      Placeholder.configure({ placeholder: '输入内容…' }),
+      Link.configure({ openOnClick: false, autolink: true, linkOnPaste: true }),
+      Highlight.configure({ multicolor: true }),
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSizeAttr,
+      SlashCommand,
+      Placeholder.configure({ placeholder: '输入内容…，键入 / 唤起快捷菜单' }),
     ],
     content: parseContent(doc.content),
     editorProps: {
@@ -816,6 +976,27 @@ function DocEditor({
             reader.readAsDataURL(file);
             return true;
           }
+        }
+        // 表格状纯文本自动识别（M14）：剪贴板本身带 <table> 时交给默认处理
+        const html = event.clipboardData?.getData('text/html') ?? '';
+        if (!/<table[\s>]/i.test(html)) {
+          const text = event.clipboardData?.getData('text/plain') ?? '';
+          const rows = text ? parseTableText(text) : null;
+          if (rows) {
+            editor?.chain().focus().insertContent(rowsToTableHtml(rows)).run();
+            return true;
+          }
+        }
+        return false;
+      },
+      // Ctrl/Cmd+点击链接 → 系统浏览器打开（M14）
+      handleClick: (view, pos, event) => {
+        if (!(event.ctrlKey || event.metaKey)) return false;
+        const linkMark = view.state.doc.resolve(pos).marks().find((m) => m.type.name === 'link');
+        const href = linkMark?.attrs.href as string | undefined;
+        if (href) {
+          void openExternalLink(href);
+          return true;
         }
         return false;
       },
@@ -847,11 +1028,6 @@ function DocEditor({
     [save],
   );
 
-  const saveNow = useCallback(() => {
-    const json = editor?.getJSON();
-    save({ title, content: json ? JSON.stringify(json) : undefined, tags });
-  }, [editor, save, title, tags]);
-
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
@@ -870,6 +1046,66 @@ function DocEditor({
     };
   }, []);
 
+  /* ---------- 错别字流处理（M18）：停顿 2.5s 扫描当前段落，仅修错别字 ---------- */
+  const [typoStreamOn, setTypoStreamOn] = useState(() => localStorage.getItem('typo-stream') === '1');
+  const typoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typoSeq = useRef(0);
+  const lastScanned = useRef('');
+
+  const toggleTypoStream = () => {
+    setTypoStreamOn((v) => {
+      localStorage.setItem('typo-stream', v ? '0' : '1');
+      return !v;
+    });
+  };
+
+  useEffect(() => {
+    if (!editor || !typoStreamOn) return;
+    const handler = () => {
+      if (typoTimer.current) clearTimeout(typoTimer.current);
+      typoTimer.current = setTimeout(() => void scanTypos(), 2500);
+    };
+    const scanTypos = async () => {
+      const { $from } = editor.state.selection;
+      if ($from.depth < 1) return;
+      const block = $from.node(1);
+      if (block.type.name !== 'paragraph') return; // 只扫正文段落（代码块/表格等跳过）
+      if (block.content.size !== block.textContent.length) return; // 含图片等非文本内联，跳过
+      const text = block.textContent;
+      if (text.trim().length < 8 || text === lastScanned.current) return;
+      const blockStart = $from.start(1);
+      const seq = ++typoSeq.current;
+      lastScanned.current = text;
+      try {
+        const { result } = await api.fixTypos(text);
+        if (seq !== typoSeq.current || !result || result === text) return;
+        // 校验段落未被改动（用户又打字了则丢弃）
+        const nodeNow = editor.state.doc.nodeAt($from.before(1));
+        if (!nodeNow || nodeNow.textContent !== text) return;
+        // 首尾公共 diff：只替换差异片段，尽量保留段落内 marks
+        let p = 0;
+        while (p < text.length && p < result.length && text[p] === result[p]) p++;
+        let s = 0;
+        while (
+          s < text.length - p &&
+          s < result.length - s &&
+          text[text.length - 1 - s] === result[result.length - 1 - s]
+        ) s++;
+        const from = blockStart + p;
+        const to = blockStart + (text.length - s);
+        editor.chain().insertContentAt({ from, to }, result.slice(p, result.length - s)).run();
+      } catch {
+        /* 静默失败，不打断写作 */
+      }
+    };
+    editor.on('update', handler);
+    return () => {
+      editor.off('update', handler);
+      if (typoTimer.current) clearTimeout(typoTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, typoStreamOn]);
+
   const moveDoc = async (folderId: string | null) => {
     try {
       await api.updateDocument(doc.id, { folderId });
@@ -879,101 +1115,244 @@ function DocEditor({
     }
   };
 
-  return (
-    <>
-      <Toolbar editor={editor} />
-      <div className="flex-1 overflow-y-auto">
-        <input
-          className="w-full px-8 pt-8 pb-2 text-2xl font-bold text-slate-800 placeholder:text-slate-300 border-b border-transparent focus:border-slate-100 focus:outline-none bg-transparent"
-          placeholder="文档标题"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            scheduleSave({ title: e.target.value });
-          }}
-        />
-        <div className="px-8 py-1.5 border-b border-slate-50 flex items-center gap-2">
-          <span className="text-[11px] text-slate-300 shrink-0">标签</span>
-          <input
-            className="flex-1 text-xs text-slate-500 placeholder:text-slate-300 focus:outline-none bg-transparent"
-            placeholder="逗号分隔，回车或失焦保存"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            onBlur={() => tags !== (doc.tags ?? '') && save({ tags })}
-            onKeyDown={(e) => e.key === 'Enter' && save({ tags })}
-          />
-          {doc.source_url && hostOf(doc.source_url) && (
-            <a
-              href={doc.source_url}
-              target="_blank"
-              rel="noopener"
-              className="text-[11px] text-indigo-400 hover:underline shrink-0"
-            >
-              来源：{hostOf(doc.source_url)}
-            </a>
-          )}
-          <select
-            value={doc.folder_id ?? ''}
-            onChange={(e) => moveDoc(e.target.value || null)}
-            className="text-xs border border-slate-200 rounded-md px-2 py-1 text-slate-600 focus:outline-none"
-          >
-            <option value="">根目录</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <EditorContent editor={editor} />
-      </div>
-      <div className="px-4 py-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-        <span>最后保存：{formatTime(lastSaved)}</span>
-        <div className="flex items-center gap-2">
-          <span>{saving ? '保存中…' : '已自动保存'}</span>
-          <button
-            onClick={saveNow}
-            className="rounded-md bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700"
-          >
-            保存
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
-  const [polishing, setPolishing] = useState(false);
-  if (!editor) return null;
-
-  const { from, to, empty } = editor.state.selection;
-
-  const polish = async () => {
-    if (empty || polishing) return;
-    const text = editor.state.doc.textBetween(from, to, ' ');
+  // 浮动工具栏 ✨ 入口：捕获当前选区并打开询问面板
+  const openAskAi = () => {
+    if (!editor) return;
+    const { from, to, empty } = editor.state.selection;
+    if (empty) return;
+    const text = editor.state.doc.textBetween(from, to, ' ', ' ');
     if (!text.trim()) return;
-    setPolishing(true);
+    setAi({ text, from, to, question: '', answer: '', loading: false });
+  };
+
+  const askAi = async () => {
+    if (!ai || !ai.question.trim() || ai.loading) return;
+    setAi({ ...ai, loading: true, answer: '' });
     try {
-      const { result } = await api.polishText(text);
-      editor.chain().focus().insertContentAt({ from, to }, result).run();
+      const { result } = await api.askLlm(ai.text, ai.question.trim());
+      setAi((prev) => (prev ? { ...prev, answer: result, loading: false } : null));
     } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setPolishing(false);
+      setAi((prev) => (prev ? { ...prev, answer: `调用失败：${(e as Error).message}`, loading: false } : null));
     }
   };
 
-  const insertImage = () => {
-    const url = window.prompt('请输入图片 URL');
-    if (url) editor.chain().focus().setImage({ src: url }).run();
+  // 把 LLM 回答沉淀进文档：补充（下方引用块）/ 替换选段 / 评论（💬引用块）
+  const applyAiAnswer = (mode: 'append' | 'replace' | 'comment') => {
+    if (!editor || !ai?.answer) return;
+    const esc = ai.answer
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .split('\n').filter((l) => l.trim()).map((l) => `<p>${l}</p>`).join('');
+    if (mode === 'replace') {
+      editor.chain().focus().insertContentAt({ from: ai.from, to: ai.to }, esc).run();
+    } else if (mode === 'append') {
+      editor.chain().focus().insertContentAt(ai.to, `<blockquote>🤖 ${esc}</blockquote>`).run();
+    } else {
+      editor.chain().focus().insertContentAt(ai.to, `<blockquote><p>💬 <b>评论：</b></p>${esc}</blockquote>`).run();
+    }
+    setAi(null);
   };
 
-  const insertTable = () => {
-    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  return (
+    <div className="h-full flex flex-col relative">
+      {/* 顶部操作组（M21 飞书式：无常驻格式工具栏，仅文档级/AI 操作） */}
+      <EditorActions
+        editor={editor}
+        typoStreamOn={typoStreamOn}
+        onToggleTypoStream={toggleTypoStream}
+        outlineOpen={outlineOpen}
+        onToggleOutline={() => setOutlineOpen((v) => !v)}
+      />
+
+      {/* 页面区：居中 760px（飞书式） */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-[760px] mx-auto px-8 pb-24">
+          <input
+            className="w-full pt-10 pb-3 text-[32px] leading-snug font-bold text-slate-800 placeholder:text-slate-300 focus:outline-none bg-transparent"
+            placeholder="请输入标题"
+            value={title}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              scheduleSave({ title: e.target.value });
+            }}
+          />
+          {/* 元信息行：低对比、不占视觉 */}
+          <div className="pb-4 mb-2 border-b border-slate-100 flex items-center gap-3 text-[11px] text-slate-300">
+            <span className="shrink-0">🏷</span>
+            <input
+              className="w-36 text-slate-400 placeholder:text-slate-300 focus:outline-none bg-transparent"
+              placeholder="标签（逗号分隔）"
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              onBlur={() => tags !== (doc.tags ?? '') && save({ tags })}
+              onKeyDown={(e) => e.key === 'Enter' && save({ tags })}
+            />
+            {doc.source_url && hostOf(doc.source_url) && (
+              <a
+                href={doc.source_url}
+                target="_blank"
+                rel="noopener"
+                className="text-indigo-300 hover:text-indigo-500 hover:underline"
+              >
+                来源：{hostOf(doc.source_url)}
+              </a>
+            )}
+            <span className="flex-1" />
+            <span>{saving ? '保存中…' : `已保存 · ${formatTime(lastSaved)}`}</span>
+          </div>
+          <div className="relative">
+            <EditorContent editor={editor} />
+            {/* 块手柄（M21 飞书式 ⋮⋮/+） */}
+            {editor && <BlockHandle editor={editor} />}
+          </div>
+        </div>
+      </div>
+
+      {/* 大纲侧栏 */}
+      {editor && <OutlinePanel editor={editor} open={outlineOpen} />}
+
+      {/* 飞书式选中文本浮动工具栏（M15）+ ✨ 询问 LLM（M16） */}
+      {/* 飞书式选中文本浮动工具栏（M15）+ ✨ 询问 LLM（M16）
+          外层固定槽位：BubbleMenu 的内联 div 会被 tippy 移动到 popper，
+          若不隔离，兄弟节点条件渲染会触发 React insertBefore 报错 */}
+      <div>
+        {editor && <FloatToolbar editor={editor} onAskAi={openAskAi} />}
+      </div>
+
+      {/* 询问 LLM 面板 */}
+      {ai && (
+        <div className="fixed right-6 top-16 z-40 w-[380px] rounded-xl bg-white shadow-2xl border border-violet-200 flex flex-col overflow-hidden">
+          <div className="px-3 py-2 bg-violet-50 border-b border-violet-100 flex items-center justify-between">
+            <span className="text-xs font-medium text-violet-700">✨ 询问 LLM</span>
+            <button onClick={() => setAi(null)} className="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+          </div>
+          <div className="px-3 py-2 text-[11px] text-slate-500 bg-slate-50 max-h-16 overflow-y-auto border-b border-slate-100">
+            选中：{ai.text.slice(0, 120)}{ai.text.length > 120 ? '…' : ''}
+          </div>
+          <div className="p-3 space-y-2">
+            <div className="flex gap-1.5">
+              <input
+                autoFocus
+                className="flex-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-300"
+                placeholder="就选中内容提问，如：这段什么意思？"
+                value={ai.question}
+                onChange={(e) => setAi({ ...ai, question: e.target.value })}
+                onKeyDown={(e) => e.key === 'Enter' && askAi()}
+              />
+              <button
+                onClick={askAi}
+                disabled={ai.loading || !ai.question.trim()}
+                className="rounded-lg bg-violet-600 text-white text-xs px-3 py-1.5 hover:bg-violet-700 disabled:opacity-40"
+              >
+                {ai.loading ? '思考中…' : '提问'}
+              </button>
+            </div>
+            {ai.answer && (
+              <>
+                <div className="max-h-48 overflow-y-auto rounded-lg bg-violet-50/50 border border-violet-100 px-3 py-2 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                  {ai.answer}
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => applyAiAnswer('append')} className="flex-1 rounded-lg bg-indigo-50 text-indigo-600 text-xs px-2 py-1.5 hover:bg-indigo-100" title="以引用块插入到选段下方">
+                    ⬇ 补充到下方
+                  </button>
+                  <button onClick={() => applyAiAnswer('replace')} className="flex-1 rounded-lg bg-amber-50 text-amber-600 text-xs px-2 py-1.5 hover:bg-amber-100" title="用回答替换选中内容">
+                    ⇄ 替换选段
+                  </button>
+                  <button onClick={() => applyAiAnswer('comment')} className="flex-1 rounded-lg bg-slate-100 text-slate-600 text-xs px-2 py-1.5 hover:bg-slate-200" title="以评论形式插入到选段下方">
+                    💬 作为评论
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 在文档中定位并应用单条错别字修正（M18） */
+function applyOneTypo(editor: NonNullable<ReturnType<typeof useEditor>>, issue: TypoIssue) {
+  let done = false;
+  editor.state.doc.descendants((node, pos) => {
+    if (done || !node.isTextblock) return false;
+    const text = node.textContent;
+    const ctx = issue.context || issue.before;
+    const ci = text.indexOf(ctx);
+    let idx = ci >= 0 ? text.indexOf(issue.before, ci) : -1;
+    if (idx < 0) idx = text.indexOf(issue.before);
+    if (idx < 0) return false;
+    const from = pos + 1 + idx;
+    editor.chain().insertContentAt({ from, to: from + issue.before.length }, issue.after).run();
+    done = true;
+    return false;
+  });
+}
+
+/** 顶部操作组（M21 飞书式：无常驻格式工具栏，仅文档级/AI 操作 + 大纲开关） */
+function EditorActions({
+  editor,
+  typoStreamOn,
+  onToggleTypoStream,
+  outlineOpen,
+  onToggleOutline,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  typoStreamOn: boolean;
+  onToggleTypoStream: () => void;
+  outlineOpen: boolean;
+  onToggleOutline: () => void;
+}) {
+  const [formatting, setFormatting] = useState(false);
+  // 错别字批处理（M18）
+  const [checking, setChecking] = useState(false);
+  const [typoIssues, setTypoIssues] = useState<TypoIssue[] | null>(null);
+  const [typoChecked, setTypoChecked] = useState<boolean[]>([]);
+  if (!editor) return null;
+
+  // 批处理：全文扫描 → 弹窗展示问题清单
+  const runTypoCheck = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const { issues } = await api.checkTypos(editor.getText({ blockSeparator: '\n' }));
+      if (!issues.length) {
+        alert('未发现错别字 ✓');
+        return;
+      }
+      setTypoIssues(issues);
+      setTypoChecked(issues.map(() => true));
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
   };
 
-  const Btn = ({
+  const applyTypoCheck = (forceAll: boolean) => {
+    if (!typoIssues) return;
+    typoIssues.forEach((issue, i) => {
+      if (forceAll || typoChecked[i]) applyOneTypo(editor, issue);
+    });
+    setTypoIssues(null);
+  };
+
+  // AI 排版（M16）：LLM 通读全文，规范标题层级与列表结构
+  const aiFormat = async () => {
+    if (formatting) return;
+    if (!confirm('AI 将通读全文并规范标题层级与列表结构。\n注意：颜色/高亮等行内样式会丢失，建议重要文档先导出备份。继续？')) return;
+    setFormatting(true);
+    try {
+      const { result } = await api.formatDoc(extractStructuredText(editor));
+      editor.commands.setContent(markdownToDoc(result));
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setFormatting(false);
+    }
+  };
+
+  const ABtn = ({
     onClick,
     active,
     children,
@@ -988,8 +1367,8 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
       type="button"
       onClick={onClick}
       title={title}
-      className={`px-2 py-1 rounded text-sm transition-colors ${
-        active ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+      className={`px-2 py-1 rounded-lg text-xs transition-colors whitespace-nowrap ${
+        active ? 'bg-violet-100 text-violet-700' : 'text-slate-500 hover:bg-slate-100'
       }`}
     >
       {children}
@@ -997,74 +1376,80 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   );
 
   return (
-    <div className="sticky top-0 z-10 px-4 py-2 border-b border-slate-200 bg-white/95 backdrop-blur flex flex-wrap items-center gap-1">
-      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive('heading', { level: 1 })} title="标题 1">
-        H1
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive('heading', { level: 2 })} title="标题 2">
-        H2
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={editor.isActive('heading', { level: 3 })} title="标题 3">
-        H3
-      </Btn>
-      <span className="w-px h-4 bg-slate-200 mx-1" />
-      <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')} title="加粗">
-        <b>B</b>
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')} title="斜体">
-        <i>I</i>
-      </Btn>
-      <span className="w-px h-4 bg-slate-200 mx-1" />
-      <Btn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')} title="无序列表">
-        • 列表
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')} title="有序列表">
-        1. 列表
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleTaskList().run()} active={editor.isActive('taskList')} title="任务列表">
-        ☑ 任务
-      </Btn>
-      <span className="w-px h-4 bg-slate-200 mx-1" />
-      <Btn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive('blockquote')} title="引用">
-        引用
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive('codeBlock')} title="代码块">
-        代码
-      </Btn>
-      <Btn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分割线">
-        —
-      </Btn>
-      <Btn onClick={insertTable} title="插入 3x3 表格">
-        表格
-      </Btn>
-      {editor.isActive('table') && (
-        <>
-          <Btn onClick={() => editor.chain().focus().addRowAfter().run()} title="下方插入行">
-            行+
-          </Btn>
-          <Btn onClick={() => editor.chain().focus().addColumnAfter().run()} title="右侧插入列">
-            列+
-          </Btn>
-        </>
+    <>
+      <div className="absolute right-4 top-3 z-20 flex items-center gap-0.5 rounded-xl bg-white/95 backdrop-blur border border-slate-200 shadow-sm px-1.5 py-1">
+        <ABtn onClick={onToggleOutline} active={outlineOpen} title="大纲目录">
+          ☰ 大纲
+        </ABtn>
+        <span className="w-px h-4 bg-slate-200" />
+        <ABtn onClick={aiFormat} title="AI 通读全文，规范标题层级与列表结构">
+          {formatting ? '排版中…' : '✨ AI 排版'}
+        </ABtn>
+        <ABtn onClick={onToggleTypoStream} active={typoStreamOn} title="停顿 2.5s 自动扫描当前段落并修正错别字">
+          {typoStreamOn ? '✓ 流式纠错' : '流式纠错'}
+        </ABtn>
+        <ABtn onClick={runTypoCheck} title="全文扫描错别字，先展示问题清单再决定应用">
+          {checking ? '检查中…' : '错别字检查'}
+        </ABtn>
+      </div>
+
+      {/* 错别字批处理弹窗（M18） */}
+      {typoIssues && (
+        <div className="fixed inset-0 z-50 bg-slate-900/30 flex items-center justify-center" onClick={() => setTypoIssues(null)}>
+          <div
+            className="w-[540px] max-h-[70vh] rounded-2xl bg-white shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-800">发现 {typoIssues.length} 处疑似错别字</span>
+              <button onClick={() => setTypoIssues(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-2">
+              {typoIssues.map((issue, i) => (
+                <label key={i} className="flex items-start gap-2.5 py-2 border-b border-slate-50 last:border-0 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={typoChecked[i]}
+                    onChange={(e) =>
+                      setTypoChecked((prev) => prev.map((v, j) => (j === i ? e.target.checked : v)))
+                    }
+                    className="mt-1"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs">
+                      <span className="line-through text-rose-500">{issue.before}</span>
+                      <span className="mx-1.5 text-slate-400">→</span>
+                      <span className="text-emerald-600 font-medium">{issue.after}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5 truncate">…{issue.context}…</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setTypoIssues(null)}
+                className="rounded-lg bg-slate-100 text-slate-600 text-xs px-3 py-1.5 hover:bg-slate-200"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => applyTypoCheck(false)}
+                className="rounded-lg bg-white border border-violet-300 text-violet-600 text-xs px-3 py-1.5 hover:bg-violet-50"
+              >
+                应用选中（{typoChecked.filter(Boolean).length}）
+              </button>
+              <button
+                onClick={() => applyTypoCheck(true)}
+                className="rounded-lg bg-violet-600 text-white text-xs px-3 py-1.5 hover:bg-violet-700"
+              >
+                全部应用
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-      <Btn onClick={insertImage} title="插入图片（URL，或直接粘贴截图）">
-        图片
-      </Btn>
-      <span className="w-px h-4 bg-slate-200 mx-1" />
-      <button
-        type="button"
-        onClick={polish}
-        disabled={empty || polishing}
-        title={empty ? '先在文中选中一段文字' : 'AI 润色选中文本'}
-        className={`px-2 py-1 rounded text-sm transition-colors ${
-          empty || polishing
-            ? 'text-slate-300 cursor-not-allowed'
-            : 'text-violet-600 hover:bg-violet-50'
-        }`}
-      >
-        {polishing ? '润色中…' : '✨ 润色'}
-      </button>
-    </div>
+    </>
   );
 }
 

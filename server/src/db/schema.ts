@@ -88,6 +88,9 @@ export function migrate() {
 
   // v9: 报告唯一约束（同一类型同一日期一条）
   if ((db.pragma('user_version', { simple: true }) as number) < 9) migrateToV9();
+
+  // v10: AI 助手会话（M19）
+  if ((db.pragma('user_version', { simple: true }) as number) < 10) migrateToV10();
 }
 
 /**
@@ -301,7 +304,26 @@ function migrateToV9() {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_type_date ON reports(type, date);`);
   db.pragma('user_version = 9');
 }
+/** v10 迁移（M19）：AI 助手会话 */
+function migrateToV10() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
 
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      conv_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+      content TEXT NOT NULL,
+      actions TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
 
-
-
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conv_id, created_at);
+  `);
+  db.pragma('user_version = 10');
+}

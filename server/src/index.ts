@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { config } from './config.js';
 import { db, DB_PATH } from './db/connection.js';
 import { migrate } from './db/schema.js';
@@ -14,7 +15,10 @@ import clipRoutes from './routes/clips.js';
 import docFolderRoutes from './routes/docFolders.js';
 import reportRoutes from './routes/reports.js';
 import canvasRoutes from './routes/canvas.js';
+import live2dRoutes from './routes/live2d.js';
 import llmRoutes from './routes/llm.js';
+import systemRoutes from './routes/system.js';
+import chatRoutes from './routes/chat.js';
 import { startScheduler } from './scheduler/index.js';
 
 migrate();
@@ -56,6 +60,8 @@ app.addContentTypeParser('*', { parseAs: 'string' }, (_req, body, done) => {
   }
 });
 
+await app.register(multipart, { limits: { fileSize: 30 * 1024 * 1024 } });
+
 app.get('/api/health', async () => {
   const dbUp = db.prepare('SELECT 1 AS one').get() as { one: number };
   return {
@@ -77,7 +83,10 @@ await app.register(documentRoutes);
 await app.register(clipRoutes);
 await app.register(docFolderRoutes);
 await app.register(canvasRoutes);
+await app.register(live2dRoutes);
 await app.register(llmRoutes);
+await app.register(systemRoutes);
+await app.register(chatRoutes);
 
 startScheduler();
 

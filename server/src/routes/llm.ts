@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/connection.js';
 import { localDate, now, uuid } from './helpers.js';
-import { generateWeeklyReport, polishText, petChat, type WeeklyData } from '../llm/index.js';
-import { rebuildDocsFts, stripToText } from '../services/docSearch.js';
+import { generateWeeklyReport, polishText, petChat, askAboutText, formatDocument, fixTypos, checkTypos, type WeeklyData } from '../llm/index.js';
+import { rebuildDocsFts, searchDocs, stripToText } from '../services/docSearch.js';
 
 const LLM_OFF = 'LLM 未启用或未配置 API Key（请在 server/.env 配置 LLM_ENABLED=true / LLM_API_KEY）';
 
@@ -151,12 +151,74 @@ export default async function llmRoutes(app: FastifyInstance) {
     return { result };
   });
 
-  // 桌宠对话
+  // 就选中内容提问（M16）
+  app.post('/api/llm/ask', async (req, reply) => {
+    const b = (req.body ?? {}) as { text?: string; question?: string };
+    if (!b.text?.trim() || !b.question?.trim()) return reply.code(400).send({ error: 'text / question 必填' });
+    let result: string | null;
+    try {
+      result = await askAboutText(b.text, b.question);
+    } catch (e) {
+      return reply.code(502).send({ error: `LLM 调用失败：${(e as Error).message}` });
+    }
+    if (result === null) return reply.code(503).send({ error: LLM_OFF });
+    return { result };
+  });
+
+  // AI 排版（M16）：规范标题层级与列表结构
+  app.post('/api/llm/format', async (req, reply) => {
+    const b = (req.body ?? {}) as { content?: string };
+    if (!b.content?.trim()) return reply.code(400).send({ error: 'content 必填' });
+    let result: string | null;
+    try {
+      result = await formatDocument(b.content);
+    } catch (e) {
+      return reply.code(502).send({ error: `LLM 调用失败：${(e as Error).message}` });
+    }
+    if (result === null) return reply.code(503).send({ error: LLM_OFF });
+    return { result };
+  });
+
+  // 错别字处理（M18）：mode=fix 流处理修正文本；mode=check 批处理返回问题清单
+  app.post('/api/llm/typos', async (req, reply) => {
+    const b = (req.body ?? {}) as { text?: string; mode?: 'fix' | 'check' };
+    if (!b.text?.trim()) return reply.code(400).send({ error: 'text 必填' });
+    try {
+      if (b.mode === 'check') {
+        const raw = await checkTypos(b.text);
+        if (raw === null) return reply.code(503).send({ error: LLM_OFF });
+        // 稳健解析：去围栏、截取 JSON 数组
+        const m = raw.match(/\[[\s\S]*\]/);
+        const issues = m ? JSON.parse(m[0]) : [];
+        return { issues };
+      }
+      const result = await fixTypos(b.text);
+      if (result === null) return reply.code(503).send({ error: LLM_OFF });
+      return { result };
+    } catch (e) {
+      return reply.code(502).send({ error: `LLM 调用失败：${(e as Error).message}` });
+    }
+  });
+
+  // 桌宠对话（自动检索知识库文档作为参考上下文）
   app.post('/api/llm/chat', async (req, reply) => {
     const b = (req.body ?? {}) as { message?: string };
     if (!b.message?.trim()) return reply.code(400).send({ error: 'message 必填' });
     try {
-      const result = await petChat(b.message.trim());
+      const message = b.message.trim();
+      // 轻量 RAG：FTS 搜知识库，命中则取 top3 的正文片段注入人格 prompt
+      const hits = (searchDocs(message) as { id: string; title: string }[]).slice(0, 3);
+      let docHint = '';
+      if (hits.length) {
+        const rows = hits
+          .map((h) => db.prepare('SELECT title, substr(content_text, 1, 600) AS t FROM documents WHERE id = ?').get(h.id) as { title: string; t: string })
+          .filter((r) => r?.t);
+        if (rows.length) {
+          docHint = '用户知识库中可能相关的内容（相关就参考，不相关就忽略，不要硬套）：\n' +
+            rows.map((r, i) => `【${i + 1}. ${r.title}】${r.t}`).join('\n');
+        }
+      }
+      const result = await petChat(message, docHint || undefined);
       if (result === null) return reply.code(503).send({ error: LLM_OFF });
       return { result };
     } catch (e) {

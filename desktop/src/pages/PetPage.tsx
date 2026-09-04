@@ -2,11 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow, getAllWindows, LogicalSize, LogicalPosition, PhysicalPosition, currentMonitor } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api/client';
-import petImg from '../assets/pet/remielle.png';
-
-/* ============ 伪 Live2D 动画参数 ============ */
-const STRIPS = 48;
-const HEAD_RATIO = 0.45;
+import { createSpriteRenderer } from '../pet/renderers/sprite';
+import { createLive2DRenderer } from '../pet/renderers/live2d';
+import { PET_MODE_KEY, PET_MODEL_KEY, type PetMode, type PetRenderer } from '../pet/renderers/types';
 
 const SIZES: [number, number][] = [[140, 200], [210, 301], [300, 430]];
 const SIZE_KEY = 'pet-size';
@@ -24,6 +22,8 @@ const CHAT_FALLBACK = [
 
 type Msg = { from: 'me' | 'pet'; text: string };
 
+const isTauri = '__TAURI_INTERNALS__' in window;
+
 export default function PetPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [bubble, setBubble] = useState<string | null>(null);
@@ -39,13 +39,15 @@ export default function PetPage() {
   });
   const bubbleTimer = useRef<number>(0);
   const blushTimer = useRef<number>(0);
-  const anim = useRef({
-    gaze: { x: 0, y: 0 },
-    gazeTarget: { x: 0, y: 0 },
-    hopT: -1,
-    spinT: -1,
-    flinchT: -1,
-  });
+  const rendererRef = useRef<PetRenderer | null>(null);
+  // 调试覆写：#/pet?mode=live2d&model=Hiyori 可强制指定引擎/模型（浏览器手测用）
+  const hashQuery = new URLSearchParams(location.hash.split('?')[1] ?? '');
+  const debugMode = hashQuery.get('mode');
+  const debugModel = hashQuery.get('model');
+  const [mode, setMode] = useState<PetMode>(() =>
+    debugMode === 'live2d' || (!debugMode && localStorage.getItem(PET_MODE_KEY) === 'live2d') ? 'live2d' : 'sprite',
+  );
+  const [modelName, setModelName] = useState(() => debugModel ?? localStorage.getItem(PET_MODEL_KEY) ?? '');
 
   const [W, H] = SIZES[sizeIdx];
 
@@ -59,15 +61,15 @@ export default function PetPage() {
     bubbleTimer.current = window.setTimeout(() => setBubble(null), ms);
   };
 
-  const hop = () => { anim.current.hopT = 0; };
-  const spin = () => { anim.current.spinT = 0; };
+  const hop = () => rendererRef.current?.hop();
+  const spin = () => rendererRef.current?.spin();
 
   const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
   const patHead = () => { hop(); showBubble(pick(HEAD_LINES)); };
 
   const shy = () => {
-    anim.current.flinchT = 0;
+    rendererRef.current?.flinch();
     setBlush(true);
     window.clearTimeout(blushTimer.current);
     blushTimer.current = window.setTimeout(() => setBlush(false), 2200);
@@ -93,12 +95,14 @@ export default function PetPage() {
   };
 
   useEffect(() => {
+    if (!isTauri) return;
     const unlisten = listen<number>('pet-resize', (e) => { void applySize(Number(e.payload)); });
     return () => { unlisten.then((f) => f()); };
   }, []);
 
   /* ---------- 提醒事件 ---------- */
   useEffect(() => {
+    if (!isTauri) return;
     const unlisten = listen<string>('pet-reminder', (e) => {
       hop();
       showBubble(`⏰ 任务到期：${e.payload}`, 6000);
@@ -106,108 +110,75 @@ export default function PetPage() {
     return () => { unlisten.then((f) => f()); };
   }, []);
 
-  /* ---------- 主渲染循环 ---------- */
+  /* ---------- 主渲染循环（按模式选择渲染后端） ---------- */
   useEffect(() => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
-    const img = new Image();
-    img.src = petImg;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let cancelled = false;
+    let renderer: PetRenderer | null = null;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-
-    let raf = 0;
-    let disposed = false;
-
-    img.onload = () => {
-      const t0 = performance.now();
-      const a = anim.current;
-
-      const frame = (nowMs: number) => {
-        if (disposed) return;
-        const t = (nowMs - t0) / 1000;
-        const iw = img.width;
-        const ih = img.height;
-        const scale = Math.min(W / iw, H / ih) * 0.98;
-        const dw = iw * scale;
-        const dh = ih * scale;
-        const baseX = (W - dw) / 2;
-        const baseY = H - dh - 2;
-
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, W, H);
-
-        const breathe = 1 + 0.012 * Math.sin(t * (Math.PI * 2) / 3.6);
-        let rotate = 0.008 * Math.sin(t * (Math.PI * 2) / 6.2);
-        a.gaze.x += (a.gazeTarget.x - a.gaze.x) * 0.08;
-        a.gaze.y += (a.gazeTarget.y - a.gaze.y) * 0.08;
-
-        let hopY = 0;
-        let squashX = 1;
-        let squashY = 1;
-        if (a.hopT >= 0) {
-          a.hopT += 1 / 60;
-          const p = a.hopT / 0.55;
-          if (p >= 1) a.hopT = -1;
-          else if (p < 0.25) { const k = p / 0.25; squashY = 1 - 0.1 * k; squashX = 1 + 0.08 * k; }
-          else if (p < 0.6) { const k = (p - 0.25) / 0.35; hopY = -20 * (H / 430) * Math.sin(k * Math.PI * 0.9); squashY = 1 + 0.07 * Math.sin(k * Math.PI); squashX = 1 - 0.05 * Math.sin(k * Math.PI); }
-          else { const k = (p - 0.6) / 0.4; squashY = 1 - 0.06 * Math.sin(k * Math.PI); squashX = 1 + 0.05 * Math.sin(k * Math.PI); }
+    (async () => {
+      if (mode === 'live2d') {
+        try {
+          const { models } = await api.listLive2dModels();
+          if (cancelled) return;
+          const target = models.find((m) => m.name === modelName) ?? models[0];
+          if (!target) throw new Error('no model');
+          const r = createLive2DRenderer(target.url, target.format);
+          if (cancelled) return;
+          await r.start(canvas, W, H);
+          if (cancelled) { r.dispose(); return; }
+          renderer = r;
+          rendererRef.current = r;
+          return;
+        } catch {
+          if (cancelled) return;
+          showBubble('Live2D 模型未就绪，已切回立绘模式（设置 → 桌宠 查看模型目录）', 6000);
         }
-        // 转圈（娱乐模式）
-        if (a.spinT >= 0) {
-          a.spinT += 1 / 60;
-          const p = a.spinT / 0.7;
-          if (p >= 1) a.spinT = -1;
-          else rotate += p * Math.PI * 2;
-        }
-        // 害羞闪躲（小幅快速抖动 + 后仰）
-        let flinchX = 0;
-        if (a.flinchT >= 0) {
-          a.flinchT += 1 / 60;
-          const p = a.flinchT / 0.45;
-          if (p >= 1) a.flinchT = -1;
-          else flinchX = Math.sin(p * Math.PI * 6) * 4 * (1 - p) * (W / 300);
-        }
+      }
+      // sprite 模式（默认 / live2d 回落）
+      const r = createSpriteRenderer();
+      await r.start(canvas, W, H);
+      if (cancelled) { r.dispose(); return; }
+      renderer = r;
+      rendererRef.current = r;
+    })();
 
-        ctx.save();
-        const anchorX = baseX + dw / 2;
-        const anchorY = baseY + dh;
-        ctx.translate(anchorX + flinchX, anchorY + hopY);
-        ctx.rotate(rotate);
-        ctx.scale(squashX, breathe * squashY);
-        ctx.translate(-anchorX, -anchorY);
-
-        const sh = ih / STRIPS;
-        for (let i = 0; i < STRIPS; i++) {
-          const sy = i * sh;
-          const ratio = 1 - Math.min(i / (STRIPS * HEAD_RATIO), 1);
-          const gx = a.gaze.x * 6 * ratio;
-          const gy = a.gaze.y * 4 * ratio;
-          ctx.drawImage(
-            img,
-            0, sy, iw, sh,
-            baseX + gx, baseY + (sy * dh) / ih + gy, dw, (sh * dh) / ih + 0.5,
-          );
-        }
-
-        ctx.restore();
-        raf = requestAnimationFrame(frame);
-      };
-      raf = requestAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      rendererRef.current = null;
+      renderer?.dispose();
     };
-    return () => { disposed = true; cancelAnimationFrame(raf); };
-  }, [W, H]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [W, H, mode, modelName]);
+
+  /* ---------- 模式/模型切换（设置页广播） ---------- */
+  useEffect(() => {
+    if (!isTauri) return;
+    const unMode = listen<string>('pet-mode', (e) => {
+      const v = e.payload === 'live2d' ? 'live2d' : 'sprite';
+      localStorage.setItem(PET_MODE_KEY, v);
+      setMode(v);
+    });
+    const unModel = listen<string>('pet-model', (e) => {
+      localStorage.setItem(PET_MODEL_KEY, e.payload);
+      setModelName(e.payload);
+    });
+    return () => {
+      unMode.then((f) => f());
+      unModel.then((f) => f());
+    };
+  }, []);
 
   /* ---------- 视线跟随 ---------- */
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      anim.current.gazeTarget = {
-        x: (e.clientX / window.innerWidth - 0.5) * 2,
-        y: (e.clientY / window.innerHeight - 0.4) * 2,
-      };
+      rendererRef.current?.lookAt(
+        (e.clientX / window.innerWidth - 0.5) * 2,
+        (e.clientY / window.innerHeight - 0.4) * 2,
+      );
     };
-    const onLeave = () => { anim.current.gazeTarget = { x: 0, y: 0 }; };
+    const onLeave = () => rendererRef.current?.lookAt(0, 0);
     window.addEventListener('mousemove', onMove);
     document.addEventListener('mouseleave', onLeave);
     return () => {
@@ -400,7 +371,9 @@ export default function PetPage() {
         </>
       )}
 
+      {/* key 随模式/模型变化强制重建 canvas：2d 与 webgl 上下文不能共用一个 canvas 元素 */}
       <canvas
+        key={`${mode}-${modelName}`}
         ref={canvasRef}
         className="w-full h-full cursor-pointer"
         onMouseDown={onMouseDown}

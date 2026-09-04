@@ -1,10 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api, type Live2dModelInfo } from '../api/client';
+import { PET_MODE_KEY, PET_MODEL_KEY, type PetMode } from '../pet/renderers/types';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
 
 function PetSection() {
   const [sizeIdx, setSizeIdx] = useState(() => Number(localStorage.getItem('pet-size') ?? 0));
+  const [mode, setMode] = useState<PetMode>(() =>
+    localStorage.getItem(PET_MODE_KEY) === 'live2d' ? 'live2d' : 'sprite',
+  );
+  const [models, setModels] = useState<Live2dModelInfo[]>([]);
+  const [modelRoot, setModelRoot] = useState('');
+  const [modelName, setModelName] = useState(() => localStorage.getItem(PET_MODEL_KEY) ?? '');
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  const loadModels = useCallback(async () => {
+    try {
+      const res = await api.listLive2dModels();
+      setModels(res.models);
+      setModelRoot(res.root);
+    } catch {
+      setModels([]);
+    } finally {
+      setModelsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode === 'live2d') void loadModels();
+  }, [mode, loadModels]);
+
   if (!isTauri) return null;
 
   const changeSize = async (idx: number) => {
@@ -12,6 +37,29 @@ function PetSection() {
     localStorage.setItem('pet-size', String(idx));
     const { emit } = await import('@tauri-apps/api/event');
     await emit('pet-resize', idx);
+  };
+
+  const changeMode = async (m: PetMode) => {
+    setMode(m);
+    localStorage.setItem(PET_MODE_KEY, m);
+    const { emit } = await import('@tauri-apps/api/event');
+    await emit('pet-mode', m);
+  };
+
+  const changeModel = async (name: string) => {
+    setModelName(name);
+    localStorage.setItem(PET_MODEL_KEY, name);
+    const { emit } = await import('@tauri-apps/api/event');
+    await emit('pet-model', name);
+  };
+
+  const openFolder = async () => {
+    try {
+      const res = await api.openLive2dFolder();
+      setModelRoot(res.root);
+    } catch (e) {
+      alert((e as Error).message);
+    }
   };
 
   const showPet = async () => {
@@ -22,7 +70,7 @@ function PetSection() {
 
   return (
     <div className="rounded-xl bg-white border border-slate-200 p-4">
-      <h3 className="text-sm font-medium">桌宠（蕾米埃尔）</h3>
+      <h3 className="text-sm font-medium">桌宠</h3>
       <p className="text-xs text-slate-400 mt-0.5">大小调节即时生效；右键桌宠有娱乐模式</p>
       <div className="mt-3 flex items-center gap-2">
         {(['小', '中', '大'] as const).map((label, i) => (
@@ -45,6 +93,69 @@ function PetSection() {
         >
           唤回桌宠
         </button>
+      </div>
+
+      {/* 形象引擎：立绘（内置伪 Live2D）/ Live2D 模型 */}
+      <div className="mt-3 pt-3 border-t border-slate-100">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">形象引擎</span>
+          <button
+            onClick={() => changeMode('sprite')}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              mode === 'sprite'
+                ? 'bg-pink-500 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            立绘（内置）
+          </button>
+          <button
+            onClick={() => changeMode('live2d')}
+            className={`rounded-lg px-3 py-1.5 text-sm ${
+              mode === 'live2d'
+                ? 'bg-pink-500 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Live2D 模型
+          </button>
+        </div>
+
+        {mode === 'live2d' && (
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <select
+                value={modelName}
+                onChange={(e) => changeModel(e.target.value)}
+                className="flex-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-pink-300"
+              >
+                <option value="">{models.length ? '自动（第一个模型）' : '（暂无模型）'}</option>
+                {models.map((m) => (
+                  <option key={m.name} value={m.name}>{m.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => void loadModels()}
+                className="rounded-lg bg-slate-100 text-slate-600 px-3 py-1.5 text-sm hover:bg-slate-200"
+              >
+                刷新列表
+              </button>
+              <button
+                onClick={openFolder}
+                className="rounded-lg bg-pink-50 text-pink-600 px-3 py-1.5 text-sm hover:bg-pink-100"
+              >
+                打开模型文件夹
+              </button>
+            </div>
+            {modelsLoaded && models.length === 0 && (
+              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                未检测到模型。把一个含 .model3.json 的模型包文件夹放进
+                {modelRoot ? <code className="mx-1 break-all">{modelRoot}</code> : '模型目录'}
+                （点「打开模型文件夹」），然后刷新列表。获取渠道见目录内 README.txt。
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

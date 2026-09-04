@@ -1,7 +1,17 @@
 import type { FastifyInstance } from 'fastify';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 import { db } from '../db/connection.js';
 import { now, uuid } from './helpers.js';
 import { rebuildDocsFts, searchDocs, stripToText } from '../services/docSearch.js';
+import { openPath } from '../services/openPath.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// 文档导出目录：server/data/exports/
+const EXPORT_DIR = join(__dirname, '..', '..', 'data', 'exports');
 
 interface DocumentBody {
   title?: string;
@@ -96,6 +106,68 @@ export default async function documentRoutes(app: FastifyInstance) {
       rebuildDocsFts();
     }
     return db.prepare(`SELECT ${LIST_COLS} FROM documents WHERE id = ?`).get(id);
+  });
+
+  // 导入本地文件（M19）：md/txt 直读；docx 走 mammoth→HTML；pdf 走 pdf-parse→纯文本
+  app.post('/api/documents/import', async (req, reply) => {
+    const file = await req.file();
+    if (!file) return reply.code(400).send({ error: '缺少文件' });
+    const name = file.filename || '未命名';
+    const ext = name.toLowerCase().split('.').pop() ?? '';
+    const title = name.replace(/\.[^.]+$/, '');
+    const buf = await file.toBuffer();
+
+    let content: string;
+    if (ext === 'md' || ext === 'markdown' || ext === 'txt') {
+      content = buf.toString('utf8');
+    } else if (ext === 'docx') {
+      const { value } = await mammoth.convertToHtml({ buffer: buf });
+      content = value;
+    } else if (ext === 'pdf') {
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      const data = await parser.getText();
+      await parser.destroy();
+      content = data.text;
+    } else {
+      return reply.code(400).send({ error: '仅支持 md / txt / docx / pdf' });
+    }
+    if (!content.trim()) return reply.code(400).send({ error: '文件内容为空或解析失败' });
+
+    const id = uuid();
+    const ts = now();
+    db.prepare(
+      `INSERT INTO documents (id,title,content,content_text,tags,source_url,summary,folder_id,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,NULL,?,?)`,
+    ).run(id, title, content, stripToText(content), '', '本地导入', '', ts, ts);
+    rebuildDocsFts();
+    return reply.code(201).send(db.prepare(`SELECT ${LIST_COLS} FROM documents WHERE id = ?`).get(id));
+  });
+
+  // 导出到本地 Markdown（server/data/exports/），并打开导出目录
+  app.post('/api/documents/:id/export', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as
+      | { title: string; content: string; content_text: string | null; source_url: string; tags: string; created_at: string }
+      | undefined;
+    if (!doc) return reply.code(404).send({ error: '文档不存在' });
+    mkdirSync(EXPORT_DIR, { recursive: true });
+    const safe = (doc.title || '未命名').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+    let file = join(EXPORT_DIR, `${safe}.md`);
+    for (let n = 2; existsSync(file); n++) file = join(EXPORT_DIR, `${safe}-${n}.md`);
+    const text = doc.content_text ?? stripToText(doc.content);
+    const md = [
+      `# ${doc.title}`,
+      '',
+      doc.source_url ? `> 来源：${doc.source_url}` : '',
+      doc.tags ? `> 标签：${doc.tags}` : '',
+      `> 创建：${doc.created_at} ｜ 导出：${now()}`,
+      '',
+      text,
+      '',
+    ].filter((l) => l !== '').join('\n');
+    writeFileSync(file, md, 'utf8');
+    openPath(EXPORT_DIR);
+    return { path: file };
   });
 
   // 删除
