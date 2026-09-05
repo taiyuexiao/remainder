@@ -47,9 +47,8 @@ jobs:
           Copy-Item -Recurse server/dist "$root/server/"
           Copy-Item -Recurse server/node_modules "$root/server/"
           Copy-Item server/package.json, server/.env.example "$root/server/"
-          Copy-Item server/data/live2d-models/README.txt "$root/server/data/live2d-models/"
-          Copy-Item -Recurse server/data/live2d-models/Hiyori "$root/server/data/live2d-models/" -ErrorAction SilentlyContinue
-          Copy-Item packaging/* "$root/"
+          Copy-Item -Recurse packaging/live2d-models/* "$root/server/data/live2d-models/"
+          Copy-Item packaging/* "$root/" -Exclude live2d-models
 
       - name: Zip package
         shell: pwsh
@@ -100,8 +99,7 @@ jobs:
           cp -R server/dist "$root/server/"
           cp -R server/node_modules "$root/server/"
           cp server/package.json server/.env.example "$root/server/"
-          cp server/data/live2d-models/README.txt "$root/server/data/live2d-models/" 2>/dev/null || true
-          cp -R server/data/live2d-models/Hiyori "$root/server/data/live2d-models/" 2>/dev/null || true
+          cp -R packaging/live2d-models/. "$root/server/data/live2d-models/"
           cp packaging/start.sh packaging/README.txt "$root/"
           chmod +x "$root/start.sh"
 
