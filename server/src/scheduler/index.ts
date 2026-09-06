@@ -40,6 +40,12 @@ async function checkDailyReport() {
   if (!config.smtp.user || !config.smtp.reportTo) return;
 
   const today = getTodayView();
+  // 今日知识库动态（M23）
+  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+  const knowledgeToday = db.prepare(
+    `SELECT title, type FROM knowledge_items WHERE created_at >= ? ORDER BY created_at DESC`,
+  ).all(dayStart) as { title: string; type: string }[];
+
   let summary = '';
   try {
     const s = await generateDailySummary(today);
@@ -48,7 +54,7 @@ async function checkDailyReport() {
     summary = `（LLM 总结生成失败：${(e as Error).message}）`;
   }
 
-  const html = buildReportHtml({ ...today, summary });
+  const html = buildReportHtml({ ...today, summary, knowledgeToday });
   try {
     await sendDailyReport(config.smtp.reportTo, html, dateStr);
     reportSentDate = dateStr;
@@ -58,9 +64,15 @@ async function checkDailyReport() {
   }
 }
 
-function buildReportHtml(data: TodayView & { summary: string }) {
+function buildReportHtml(data: TodayView & { summary: string; knowledgeToday: { title: string; type: string }[] }) {
   const li = (arr: { title: string; [k: string]: unknown }[]) =>
     arr.length ? arr.map((t) => `<li>${t.title}</li>`).join('') : '<li>无</li>';
+  const TYPE_ICON: Record<string, string> = {
+    intel: '⚡', share: '🔗', note: '📝', rfc: '💬', guide: '📖', spec: '📐', adr: '⚖️',
+  };
+  const kbLi = data.knowledgeToday.length
+    ? data.knowledgeToday.map((k) => `<li>${TYPE_ICON[k.type] ?? '📄'} ${k.title}</li>`).join('')
+    : '';
   return `
     <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;line-height:1.6;color:#334155">
       <h2 style="color:#4f46e5">Remainder 日报 · ${data.date}</h2>
@@ -73,6 +85,7 @@ function buildReportHtml(data: TodayView & { summary: string }) {
       <ul>${li(data.today.filter((t) => t.status !== 'done'))}</ul>
       <h3 style="color:#d97706">🤝 今日待跟进</h3>
       <ul>${li(data.followUps)}</ul>
+      ${kbLi ? `<h3 style="color:#7c3aed">📚 今日知识库动态</h3><ul>${kbLi}</ul>` : ''}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
       <p style="font-size:12px;color:#94a3b8">Sent by Remainder at ${new Date().toLocaleString('zh-CN')}</p>
     </div>
@@ -90,6 +103,12 @@ export function startScheduler() {
 
 export function getNotifications() {
   return notifications.slice();
+}
+
+/** 推一条通知进队列（M25 @人 P0 必达）：桌面端轮询 /api/notifications 取走弹 toast */
+export function pushNotification(title: string, refId = '') {
+  if (!config.notifyEnabled) return;
+  notifications.push({ id: randomUUID(), taskId: refId, title, fireAt: now() });
 }
 
 export function clearNotifications() {

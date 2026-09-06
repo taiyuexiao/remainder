@@ -91,6 +91,21 @@ export function migrate() {
 
   // v10: AI 助手会话（M19）
   if ((db.pragma('user_version', { simple: true }) as number) < 10) migrateToV10();
+
+  // v11: 团队知识库条目（M23）
+  if ((db.pragma('user_version', { simple: true }) as number) < 11) migrateToV11();
+
+  // v12: 多团队空间（M24）
+  if ((db.pragma('user_version', { simple: true }) as number) < 12) migrateToV12();
+
+  // v13: 工作库项目化（M25 / K2）
+  if ((db.pragma('user_version', { simple: true }) as number) < 13) migrateToV13();
+
+  // v14: 条目评论（M26 / K3）
+  if ((db.pragma('user_version', { simple: true }) as number) < 14) migrateToV14();
+
+  // v15: 发布/同步（M27 / K4）
+  if ((db.pragma('user_version', { simple: true }) as number) < 15) migrateToV15();
 }
 
 /**
@@ -326,4 +341,162 @@ function migrateToV10() {
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conv ON chat_messages(conv_id, created_at);
   `);
   db.pragma('user_version = 10');
+}
+/** v11 迁移（M23）：团队知识库条目 */
+function migrateToV11() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_items (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK(type IN ('intel','share','note','rfc','guide','spec','adr')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      content_text TEXT DEFAULT '',
+      author TEXT DEFAULT '',
+      owners TEXT DEFAULT '[]',
+      channels TEXT DEFAULT '[]',
+      tags TEXT DEFAULT '[]',
+      ttl TEXT DEFAULT '',
+      status TEXT DEFAULT 'active' CHECK(status IN ('active','archived','draft','open','concluded')),
+      acl TEXT DEFAULT 'team' CHECK(acl IN ('team','project','private')),
+      notify TEXT DEFAULT 'digest' CHECK(notify IN ('immediate','digest','silent')),
+      related TEXT DEFAULT '[]',
+      conclusion TEXT DEFAULT '',
+      useful_count INTEGER DEFAULT 0,
+      source_url TEXT DEFAULT '',
+      source_clip_id TEXT,
+      source_doc_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge_items(type, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_expires ON knowledge_items(expires_at);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+      title, content_text, tags,
+      content='knowledge_items', content_rowid='rowid',
+      tokenize='trigram'
+    );
+  `);
+  db.pragma('user_version = 11');
+}
+
+/**
+ * v12 迁移（M24）：多团队空间。
+ * 1. teams / team_members 表（角色 owner/admin/member）
+ * 2. knowledge_items 加 team_id 列，存量归入内置「个人空间」(team_id='personal')
+ * 3. 个人空间为特殊团队：节点上所有用户默认可访问（单机场景零配置）
+ */
+function migrateToV12() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      invite_token TEXT NOT NULL,
+      created_by TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      user_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('owner','admin','member')),
+      joined_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, user_name)
+    );
+  `);
+
+  const cols = db.prepare('PRAGMA table_info(knowledge_items)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'team_id')) {
+    db.exec(`ALTER TABLE knowledge_items ADD COLUMN team_id TEXT NOT NULL DEFAULT 'personal'`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_knowledge_team ON knowledge_items(team_id, type, status)`);
+
+  // 内置个人空间（幂等）
+  const ts = new Date().toISOString();
+  db.prepare(
+    `INSERT OR IGNORE INTO teams (id, name, description, invite_token, created_by, created_at)
+     VALUES ('personal', '个人空间', '本机个人知识资产', '', 'system', ?)`,
+  ).run(ts);
+
+  db.pragma('user_version = 12');
+}
+
+/**
+ * v13 迁移（M25 / K2）：工作库项目化。
+ * kb_projects：项目→子项目（parent_id 自嵌套）树，挂 team_id 隔离；owners=JSON 数组（@负责人）
+ * knowledge_items 加 project_id（可空=未分配到项目）
+ */
+function migrateToV13() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS kb_projects (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL DEFAULT 'personal',
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      parent_id TEXT REFERENCES kb_projects(id) ON DELETE CASCADE,
+      owners TEXT DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kb_projects_team ON kb_projects(team_id, parent_id);
+  `);
+  const cols = db.prepare('PRAGMA table_info(knowledge_items)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'project_id')) {
+    db.exec(`ALTER TABLE knowledge_items ADD COLUMN project_id TEXT`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_items(project_id)`);
+  db.pragma('user_version = 13');
+}
+
+/** v14 迁移（M26 / K3）：条目评论流，parent_id 支持楼中楼 */
+function migrateToV14() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+      parent_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+      author TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_item ON comments(item_id, created_at);
+  `);
+  db.pragma('user_version = 14');
+}
+
+/**
+ * v15 迁移（M27 / K4）：发布/同步。
+ * publications：发布记录（from_team → to_team，进对方收件箱，三选：查看/同步/忽略）
+ * knowledge_items 加 upstream_*：同步副本记上游指针（fork 式；上游删除不回删副本——红线）
+ */
+function migrateToV15() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS publications (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL REFERENCES knowledge_items(id) ON DELETE CASCADE,
+      from_team TEXT NOT NULL,
+      to_team TEXT NOT NULL,
+      from_author TEXT DEFAULT '',
+      source_updated_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','viewed','synced','ignored')),
+      synced_item_id TEXT,
+      resolved_by TEXT DEFAULT '',
+      published_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_publications_to ON publications(to_team, status);
+    CREATE INDEX IF NOT EXISTS idx_publications_item ON publications(item_id);
+  `);
+  const cols = db.prepare('PRAGMA table_info(knowledge_items)').all() as { name: string }[];
+  const addCol = (name: string, ddl: string) => {
+    if (!cols.some((c) => c.name === name)) db.exec(`ALTER TABLE knowledge_items ADD COLUMN ${ddl}`);
+  };
+  addCol('upstream_id', 'upstream_id TEXT');
+  addCol('upstream_team', `upstream_team TEXT DEFAULT ''`);
+  addCol('upstream_updated_at', 'upstream_updated_at TEXT');
+  db.pragma('user_version = 15');
 }

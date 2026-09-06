@@ -1,0 +1,13 @@
+{
+  "name": "remainder-mcp-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Remainder 知识库 MCP server（给 coding agent 读团队知识库）",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

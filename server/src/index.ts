@@ -17,6 +17,12 @@ import reportRoutes from './routes/reports.js';
 import canvasRoutes from './routes/canvas.js';
 import live2dRoutes from './routes/live2d.js';
 import llmRoutes from './routes/llm.js';
+import knowledgeRoutes from './routes/knowledge.js';
+import kbProjectRoutes from './routes/kbProjects.js';
+import commentRoutes from './routes/comments.js';
+import okfExportRoutes from './routes/exportOkf.js';
+import publicationRoutes from './routes/publications.js';
+import teamRoutes from './routes/teams.js';
 import systemRoutes from './routes/system.js';
 import chatRoutes from './routes/chat.js';
 import { startScheduler } from './scheduler/index.js';
@@ -31,6 +37,18 @@ const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
 await app.register(cors, {
   origin: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-team-token', 'x-user-name'],
+});
+
+// 联机模式：非回环监听时，非本机请求必须带 x-team-token
+app.addHook('onRequest', async (req, reply) => {
+  if (LOOPBACK.has(req.ip)) return; // 本机请求免校验
+  if (!config.teamToken) {
+    return reply.code(503).send({ error: '联机模式未配置 TEAM_TOKEN，拒绝外部请求' });
+  }
+  if (req.headers['x-team-token'] !== config.teamToken) {
+    return reply.code(401).send({ error: '缺少或错误的 x-team-token' });
+  }
 });
 
 // Chrome 130+ Private Network Access：扩展从公网页面访问 localhost 需此预检头
@@ -87,12 +105,21 @@ await app.register(live2dRoutes);
 await app.register(llmRoutes);
 await app.register(systemRoutes);
 await app.register(chatRoutes);
+await app.register(knowledgeRoutes);
+await app.register(kbProjectRoutes);
+await app.register(commentRoutes);
+await app.register(okfExportRoutes);
+await app.register(publicationRoutes);
+await app.register(teamRoutes);
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1']);
+const isLoopback = (ip?: string) => !ip || LOOPBACK.has(ip);
 
 startScheduler();
 
 const start = async () => {
   try {
-    await app.listen({ port: config.port, host: '127.0.0.1' });
+    await app.listen({ port: config.port, host: config.host });
   } catch (err) {
     app.log.error(err);
     process.exit(1);
