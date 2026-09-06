@@ -141,13 +141,23 @@ fn main() {
         .build();
 
     tauri::Builder::default()
-        // 单实例：再次启动（双击桌面图标/exe）时把主窗口唤到前台，而不是静默退出
+        // 单实例：再次启动（双击桌面图标/exe）时把主窗口唤到前台；
+        // 若主窗口已被用户关闭（窗口对象已销毁），则原地重建
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::Manager;
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
+            use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+            match app.get_webview_window("main") {
+                Some(w) => {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                None => {
+                    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
+                        .title("Remainder")
+                        .inner_size(1200.0, 800.0)
+                        .min_inner_size(900.0, 600.0)
+                        .build();
+                }
             }
         }))
         .invoke_handler(tauri::generate_handler![read_clipboard_html])

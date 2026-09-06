@@ -38,6 +38,23 @@ export default function InboxPage() {
     reload();
   };
 
+  // 沉淀到知识库（M23）：速记 → note 经验条目
+  const sediment = async (it: InboxItem) => {
+    try {
+      await api.createKnowledge({
+        type: 'note',
+        title: it.content.slice(0, 50) || '速记',
+        content: it.content,
+        tags: it.tags ? it.tags.split(/[,，]/).map((s) => s.trim()).filter(Boolean) : [],
+      });
+      await api.deleteInbox(it.id);
+      reload();
+      alert('已沉淀到知识库（经验）');
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
   const convert = async (id: string) => {
     if (convertProjectId) {
       // 选了已有项目 → 转为该项目的子任务（type 由后端从项目继承）
@@ -136,6 +153,12 @@ export default function InboxPage() {
                   className="text-indigo-600 hover:underline"
                 >
                   转为任务
+                </button>
+                <button
+                  onClick={() => sediment(it)}
+                  className="text-emerald-600 hover:underline"
+                >
+                  沉淀到知识库
                 </button>
                 <button onClick={() => remove(it.id)} className="text-red-400 hover:underline">
                   删除

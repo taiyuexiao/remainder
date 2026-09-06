@@ -261,6 +261,86 @@ const KEYS = [
   { key: 'report_to', label: '日报接收邮箱', hint: '163 邮箱地址' },
 ];
 
+/** 联机共享设置（M23/M24）：配置团队节点地址、共享 token 与我的名字 */
+function NetworkSection() {
+  const [apiBase, setApiBase] = useState(() => localStorage.getItem('api-base') ?? 'http://127.0.0.1:3210');
+  const [token, setToken] = useState(() => localStorage.getItem('team-token') ?? '');
+  const [userName, setUserName] = useState(() => localStorage.getItem('user-name') ?? '');
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    localStorage.setItem('api-base', apiBase.trim() || 'http://127.0.0.1:3210');
+    localStorage.setItem('team-token', token.trim());
+    localStorage.setItem('user-name', userName.trim());
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1500);
+  };
+
+  return (
+    <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium">联机共享</h3>
+        <p className="text-xs text-slate-400 mt-0.5">
+          连接到团队 Remainder 节点。节点侧需以 HOST=0.0.0.0 + TEAM_TOKEN 启动 server。
+          修改后需重启应用生效。多人协作时「我的名字」用于团队身份识别（同名即同人，LAN 信任制）。
+        </p>
+      </div>
+      <label className="block text-xs text-slate-500">
+        节点地址
+        <input
+          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          placeholder="http://127.0.0.1:3210"
+          value={apiBase}
+          onChange={(e) => setApiBase(e.target.value)}
+        />
+      </label>
+      <label className="block text-xs text-slate-500">
+        我的名字（团队成员身份）
+        <input
+          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          placeholder="如：小武（知识条目作者、团队成员都以它识别你）"
+          value={userName}
+          onChange={(e) => setUserName(e.target.value)}
+        />
+      </label>
+      <label className="block text-xs text-slate-500">
+        共享 token（x-team-token）
+        <input
+          type="password"
+          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+          placeholder="团队共享 token（单机留空）"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </label>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={save}
+          className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+        >
+          保存
+        </button>
+        {saved && <span className="text-xs text-emerald-600">已保存 ✓</span>}
+        {apiBase !== 'http://127.0.0.1:3210' && (
+          <button
+            onClick={() => {
+              setApiBase('http://127.0.0.1:3210');
+              setToken('');
+              setUserName('');
+              localStorage.removeItem('api-base');
+              localStorage.removeItem('team-token');
+              localStorage.removeItem('user-name');
+            }}
+            className="rounded-lg bg-slate-100 text-slate-600 text-xs px-3 py-1.5 hover:bg-slate-200"
+          >
+            恢复单机
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState('');
@@ -293,6 +373,7 @@ export default function SettingsPage() {
       </header>
       <div className="flex-1 overflow-y-auto px-6 py-4 max-w-2xl space-y-3">
         <PetSection />
+        <NetworkSection />
         <LlmSection settings={settings} save={save} />
         {KEYS.map((k) => {
           const isBool = k.key === 'notify_enabled';

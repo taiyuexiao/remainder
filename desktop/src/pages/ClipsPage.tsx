@@ -71,6 +71,27 @@ export default function ClipsPage() {
     reload();
   };
 
+  // 沉淀到知识库（M23）：转 note / intel 条目，关联剪藏来源
+  const sediment = async (id: string, type: 'note' | 'intel') => {
+    const clip = clips.find((c) => c.id === id);
+    if (!clip) return;
+    try {
+      await api.createKnowledge({
+        type,
+        title: clip.title,
+        content: clip.excerpt ?? '',
+        author: '',
+        channels: [],
+        tags: [],
+        source_url: clip.url,
+        source_clip_id: clip.id,
+      });
+      alert(`已沉淀到知识库（${type === 'note' ? '经验' : '快讯'}）`);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
   return (
     <div className="h-full flex">
       {/* 左侧：剪藏列表 */}
@@ -165,6 +186,20 @@ export default function ClipsPage() {
                   className="flex-1 rounded-lg bg-indigo-600 text-white py-1.5 text-sm hover:bg-indigo-700 disabled:opacity-40"
                 >
                   {selected.status === 'converted' ? '已转文档' : '转为文档'}
+                </button>
+                <button
+                  onClick={() => sediment(selected.id, 'note')}
+                  className="rounded-lg bg-emerald-50 text-emerald-600 px-3 py-1.5 text-sm hover:bg-emerald-100"
+                  title="沉淀为知识库-经验条目"
+                >
+                  📚 沉淀
+                </button>
+                <button
+                  onClick={() => sediment(selected.id, 'intel')}
+                  className="rounded-lg bg-amber-50 text-amber-600 px-3 py-1.5 text-sm hover:bg-amber-100"
+                  title="沉淀为知识库-快讯条目"
+                >
+                  ⚡ 快讯
                 </button>
                 <button
                   onClick={() => remove(selected.id)}

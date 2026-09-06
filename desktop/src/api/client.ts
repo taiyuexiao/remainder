@@ -1,7 +1,13 @@
-const API = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3210';
+const API = import.meta.env.VITE_API_BASE ?? localStorage.getItem('api-base') ?? 'http://127.0.0.1:3210';
 
-/** API base（拼剪藏图片等相对路径用） */
+/** API base（拼剪藏图片等相对路径用；联机模式下指向团队节点） */
 export const API_BASE = API;
+
+/** 联机共享 token（非回环节点必填） */
+const teamToken = () => localStorage.getItem('team-token') ?? '';
+
+/** 当前用户名（M24 团队身份，LAN 信任制） */
+export const currentUserName = () => localStorage.getItem('user-name')?.trim() || '';
 
 export type TaskType = 'main' | 'side' | 'follow' | 'idea';
 export type ProjectType = 'main' | 'side' | 'follow';
@@ -210,8 +216,13 @@ export interface TaskRangeData {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = teamToken();
+  if (token) headers['x-team-token'] = token;
+  const user = currentUserName();
+  if (user) headers['x-user-name'] = encodeURIComponent(user); // CJK 名需编码，HTTP 头仅允许 Latin-1
   const r = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...init,
   });
   if (!r.ok) {
@@ -356,6 +367,72 @@ export const api = {
     req<{ result: string }>('/api/llm/typos', { method: 'POST', body: JSON.stringify({ text, mode: 'fix' }) }),
   checkTypos: (text: string) =>
     req<{ issues: TypoIssue[] }>('/api/llm/typos', { method: 'POST', body: JSON.stringify({ text, mode: 'check' }) }),
+  // 知识库（M23）
+  listKnowledge: (q?: { q?: string; type?: string; channel?: string; tag?: string; status?: string; includeExpired?: string; team?: string; project?: string }) =>
+    req<KnowledgeItem[]>(`/api/knowledge${qsOf(q as Record<string, string | undefined>)}`),
+  getKnowledge: (id: string) => req<KnowledgeItemDetail>(`/api/knowledge/${id}`),
+  createKnowledge: (b: KnowledgeInput) =>
+    req<KnowledgeItem>('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
+  updateKnowledge: (id: string, b: Partial<KnowledgeInput>) =>
+    req<KnowledgeItem>(`/api/knowledge/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  concludeKnowledge: (id: string, conclusion: string, promoteTo?: 'note' | 'adr') =>
+    req<{ concluded: KnowledgeItem; promoted: KnowledgeItem | null }>(`/api/knowledge/${id}/conclude`, {
+      method: 'POST',
+      body: JSON.stringify({ conclusion, promoteTo }),
+    }),
+  usefulKnowledge: (id: string) =>
+    req<KnowledgeItem>(`/api/knowledge/${id}/useful`, { method: 'POST' }),
+  deleteKnowledge: (id: string) =>
+    req<{ deleted: string }>(`/api/knowledge/${id}`, { method: 'DELETE' }),
+
+  // 团队空间（M24）
+  listTeams: () => req<Team[]>('/api/teams'),
+  createTeam: (b: { name: string; description?: string }) =>
+    req<{ id: string; name: string; my_role: TeamRole }>('/api/teams', { method: 'POST', body: JSON.stringify(b) }),
+  joinTeam: (invite_token: string) =>
+    req<{ id: string; name: string; my_role: TeamRole }>('/api/teams/join', { method: 'POST', body: JSON.stringify({ invite_token }) }),
+  getTeam: (id: string) => req<TeamDetail>(`/api/teams/${id}`),
+  updateTeam: (id: string, b: { name?: string; description?: string }) =>
+    req<{ id: string; name: string; description: string }>(`/api/teams/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  addTeamMember: (id: string, user_name: string, role?: TeamRole) =>
+    req(`/api/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ user_name, role }) }),
+  updateTeamMember: (id: string, user: string, role: TeamRole) =>
+    req(`/api/teams/${id}/members/${encodeURIComponent(user)}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeTeamMember: (id: string, user: string) =>
+    req(`/api/teams/${id}/members/${encodeURIComponent(user)}`, { method: 'DELETE' }),
+  rotateTeamInvite: (id: string) =>
+    req<{ invite_token: string }>(`/api/teams/${id}/rotate-invite`, { method: 'POST' }),
+  deleteTeam: (id: string) => req<{ deleted: string }>(`/api/teams/${id}`, { method: 'DELETE' }),
+
+  // 工作库项目（M25 / K2）
+  listKbProjects: (team: string) => req<KbProject[]>(`/api/kb-projects?team=${encodeURIComponent(team)}`),
+  createKbProject: (b: { name: string; team_id: string; parent_id?: string | null; description?: string; owners?: string[] }) =>
+    req<KbProject>('/api/kb-projects', { method: 'POST', body: JSON.stringify(b) }),
+  updateKbProject: (id: string, b: Partial<{ name: string; description: string; parent_id: string | null; owners: string[]; status: string }>) =>
+    req<KbProject>(`/api/kb-projects/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteKbProject: (id: string) => req<{ deleted: string }>(`/api/kb-projects/${id}`, { method: 'DELETE' }),
+
+  // 评论（M26 / K3）
+  listComments: (itemId: string) => req<KbComment[]>(`/api/knowledge/${itemId}/comments`),
+  createComment: (itemId: string, b: { content: string; parent_id?: string }) =>
+    req<KbComment>(`/api/knowledge/${itemId}/comments`, { method: 'POST', body: JSON.stringify(b) }),
+  deleteComment: (id: string) => req<{ deleted: string }>(`/api/comments/${id}`, { method: 'DELETE' }),
+
+  // OKF 导出（M26）
+  exportOkf: (team: string) =>
+    req<{ dir: string; count: number }>('/api/knowledge/export/okf', { method: 'POST', body: JSON.stringify({ team }) }),
+
+  // 发布/同步（M27 / K4）
+  publishKnowledge: (id: string, to_team: string) =>
+    req<Publication>(`/api/knowledge/${id}/publish`, { method: 'POST', body: JSON.stringify({ to_team }) }),
+  listPublications: (team: string) => req<Publication[]>(`/api/publications?team=${encodeURIComponent(team)}`),
+  publicationCount: (team: string) => req<{ c: number }>(`/api/publications/count?team=${encodeURIComponent(team)}`),
+  viewPublication: (id: string) => req<KnowledgeItemDetail>(`/api/publications/${id}/item`),
+  ignorePublication: (id: string) => req<Publication>(`/api/publications/${id}/ignore`, { method: 'POST' }),
+  syncPublication: (id: string) =>
+    req<{ publication: Publication; item: { id: string; title: string } }>(`/api/publications/${id}/sync`, { method: 'POST' }),
+  pullKnowledge: (id: string) =>
+    req<{ id: string; title: string; upstream_updated_at: string }>(`/api/knowledge/${id}/pull`, { method: 'POST' }),
   // AI 助手会话（M19）
   listConversations: () => req<Conversation[]>('/api/conversations'),
   createConversation: () => req<Conversation>('/api/conversations', { method: 'POST' }),
@@ -402,6 +479,143 @@ export interface TypoIssue {
   before: string;
   after: string;
   context: string;
+}
+
+/** 知识库条目类型（M23） */
+export type KnowledgeType = 'intel' | 'share' | 'note' | 'rfc' | 'guide' | 'spec' | 'adr';
+
+export const KNOWLEDGE_TYPE_LABEL: Record<KnowledgeType, { label: string; icon: string; color: string }> = {
+  intel: { label: '快讯', icon: '⚡', color: '#f59e0b' },
+  share: { label: '分享', icon: '🔗', color: '#0ea5e9' },
+  note: { label: '经验', icon: '📝', color: '#059669' },
+  rfc: { label: '探讨', icon: '💬', color: '#8b5cf6' },
+  guide: { label: '规范', icon: '📖', color: '#2563eb' },
+  spec: { label: '契约', icon: '📐', color: '#0891b2' },
+  adr: { label: '决策', icon: '⚖️', color: '#be123c' },
+};
+
+export interface KnowledgeItem {
+  id: string;
+  type: KnowledgeType;
+  title: string;
+  team_id: string;
+  project_id: string | null;
+  author: string;
+  owners: string;
+  channels: string;
+  tags: string;
+  ttl: string;
+  status: string;
+  acl: string;
+  notify: string;
+  related: string;
+  conclusion: string;
+  useful_count: number;
+  source_url: string;
+  source_clip_id: string | null;
+  source_doc_id: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string | null;
+  upstream_id: string | null;
+  upstream_team: string;
+  upstream_updated_at: string | null;
+  upstream_has_update: number | null;
+}
+
+/** 发布记录（M27 / K4） */
+export interface Publication {
+  id: string;
+  item_id: string;
+  from_team: string;
+  to_team: string;
+  from_author: string;
+  source_updated_at: string;
+  status: 'pending' | 'viewed' | 'synced' | 'ignored';
+  synced_item_id: string | null;
+  resolved_by: string;
+  published_at: string;
+  resolved_at: string | null;
+  item_title?: string;
+  item_type?: string;
+  from_team_name?: string;
+}
+
+export interface KnowledgeItemDetail extends KnowledgeItem {
+  content: string;
+}
+
+export interface KnowledgeInput {
+  type: KnowledgeType;
+  title: string;
+  content?: string;
+  team_id?: string;
+  project_id?: string | null;
+  author?: string;
+  owners?: string[];
+  channels?: string[];
+  tags?: string[];
+  ttl?: string;
+  status?: string;
+  acl?: string;
+  notify?: string;
+  related?: string[];
+  conclusion?: string;
+  source_url?: string;
+  source_clip_id?: string;
+  source_doc_id?: string;
+}
+
+export const KNOWLEDGE_CHANNELS = ['backend', 'frontend', 'infra', 'product', 'ai-intel', 'learning', 'general'];
+
+/** 团队空间（M24） */
+export type TeamRole = 'owner' | 'admin' | 'member';
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  created_at: string;
+  member_count: number;
+  item_count: number;
+  my_role: TeamRole;
+}
+
+export interface TeamMember {
+  user_name: string;
+  role: TeamRole;
+  joined_at: string;
+}
+
+export interface TeamDetail extends Team {
+  invite_token?: string;
+  members: TeamMember[];
+}
+
+/** 条目评论（M26 / K3） */
+export interface KbComment {
+  id: string;
+  item_id: string;
+  parent_id: string | null;
+  author: string;
+  content: string;
+  created_at: string;
+}
+
+/** 工作库项目（M25 / K2） */
+export interface KbProject {
+  id: string;
+  team_id: string;
+  name: string;
+  description: string;
+  parent_id: string | null;
+  owners: string; // JSON 数组
+  status: string;
+  sort_order: number;
+  item_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 /** 打开外部链接：Tauri 走 server（explorer），纯浏览器用 window.open */

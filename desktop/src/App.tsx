@@ -12,8 +12,9 @@ import ReportsPage from './pages/ReportsPage';
 import CanvasPage from './pages/CanvasPage';
 import TimelinePage from './pages/TimelinePage';
 import ChatPage from './pages/ChatPage';
+import TeamsPage from './pages/TeamsPage';
 
-type NavKey = 'today' | 'assistant' | 'calendar' | 'timeline' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'settings';
+type NavKey = 'today' | 'assistant' | 'calendar' | 'timeline' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'knowledge' | 'settings';
 
 const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
   { key: 'today', label: '今日', icon: '☀️', hint: '' },
@@ -25,6 +26,7 @@ const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
   { key: 'inbox', label: 'Inbox', icon: '💡', hint: '' },
   { key: 'clips', label: '剪藏', icon: '📥', hint: '' },
   { key: 'docs', label: '文档', icon: '📝', hint: '' },
+  { key: 'knowledge', label: '团队', icon: '👥', hint: '' },
   { key: 'reports', label: '报告', icon: '📊', hint: '' },
   { key: 'canvas', label: '画布', icon: '🎨', hint: '' },
   { key: 'settings', label: '设置', icon: '⚙️', hint: '' },
@@ -167,6 +169,8 @@ export default function App() {
           <ReportsPage />
         ) : nav === 'canvas' ? (
           <CanvasPage />
+        ) : nav === 'knowledge' ? (
+          <TeamsPage />
         ) : nav === 'settings' ? (
           <SettingsPage />
         ) : (
