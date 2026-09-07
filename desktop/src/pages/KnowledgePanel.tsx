@@ -169,6 +169,9 @@ export default function KnowledgePanel({
                     {m.icon} {m.label}
                   </span>
                   <span className="text-[13px] font-medium text-slate-800 truncate flex-1">{it.title}</span>
+                  {it.status === 'draft' && (
+                    <span className="text-[10px] rounded-full border border-dashed border-amber-400 text-amber-500 px-1.5 py-px shrink-0">草稿</span>
+                  )}
                   {it.upstream_has_update === 1 && (
                     <span className="text-[10px] rounded-full bg-amber-50 text-amber-600 px-1.5 py-px shrink-0">↻ 有新版本</span>
                   )}
@@ -342,6 +345,21 @@ export default function KnowledgePanel({
               <button onClick={() => setDetail(null)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
+              {detail.status === 'draft' && (
+                <div className="mb-3 rounded-xl bg-amber-50 border border-dashed border-amber-300 px-3 py-2.5 flex items-center gap-2">
+                  <span className="text-xs text-amber-600 flex-1">这是一条 agent 提交的草稿，确认后转正入库</span>
+                  <button
+                    onClick={async () => {
+                      await api.updateKnowledge(detail.id, { status: 'active' });
+                      setDetail(await api.getKnowledge(detail.id));
+                      load();
+                    }}
+                    className="rounded-lg bg-amber-500 text-white text-[11px] px-2.5 py-1 hover:bg-amber-600"
+                  >
+                    ✓ 确认转正
+                  </button>
+                </div>
+              )}
               <div className="text-[11px] text-slate-400 space-x-2 mb-3">
                 {detail.author && <span>作者 {detail.author}</span>}
                 {parseArr(detail.owners).map((o) => <span key={o} className="rounded bg-violet-50 text-violet-600 px-1.5">@{o}</span>)}

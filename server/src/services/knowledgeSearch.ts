@@ -51,7 +51,8 @@ export function searchKnowledge(opts: KnowledgeSearchOpts) {
   if (projectId === 'none') { conds.push('k.project_id IS NULL'); }
   else if (projectId) { conds.push('k.project_id = ?'); params.push(projectId); }
   if (type) { conds.push('k.type = ?'); params.push(type); }
-  if (status && status !== 'any') { conds.push('k.status IN (?,?)'); params.push(status, 'open'); }
+  // 默认含 open（探讨中）与 draft（agent 草稿待人审，M28）
+  if (status && status !== 'any') { conds.push(`k.status IN (?, 'open', 'draft')`); params.push(status); }
   if (channel) { conds.push(`k.channels LIKE ?`); params.push(`%"${channel}"%`); }
   if (tag) { conds.push(`k.tags LIKE ?`); params.push(`%"${tag}"%`); }
   if (hideExpired) {

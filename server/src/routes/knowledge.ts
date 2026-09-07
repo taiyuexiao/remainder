@@ -48,6 +48,49 @@ function computeExpiresAt(type: string, ttl?: string): string | null {
 }
 
 export default async function knowledgeRoutes(app: FastifyInstance) {
+  // ── M28：agent 增强查询 ──
+
+  // kb_constraints：聚合某主题的 spec + adr（adr 否决项置顶），agent 干活前必查
+  app.get('/api/knowledge/constraints', async (req, reply) => {
+    const { team, module } = req.query as { team?: string; module?: string };
+    const teamId = team || PERSONAL_TEAM_ID;
+    if (!teamExists(teamId)) return reply.code(404).send({ error: '团队不存在' });
+    if (!isMember(teamId, currentUser(req))) return reply.code(403).send({ error: '不是该团队成员' });
+    const like = `%${module ?? ''}%`;
+    const rows = db.prepare(
+      `SELECT ${LIST_COLS} FROM knowledge_items
+       WHERE team_id = ? AND type IN ('spec','adr') AND status IN ('active','concluded')
+         AND (title LIKE ? OR content_text LIKE ? OR tags LIKE ? OR channels LIKE ?)
+       ORDER BY CASE type WHEN 'adr' THEN 0 ELSE 1 END, updated_at DESC LIMIT 20`,
+    ).all(teamId, like, like, like, like);
+    return rows;
+  });
+
+  // kb_who_knows：按 owners/作者统计回答“这事问谁”
+  app.get('/api/knowledge/who-knows', async (req, reply) => {
+    const { team, topic } = req.query as { team?: string; topic?: string };
+    const teamId = team || PERSONAL_TEAM_ID;
+    if (!teamExists(teamId)) return reply.code(404).send({ error: '团队不存在' });
+    if (!isMember(teamId, currentUser(req))) return reply.code(403).send({ error: '不是该团队成员' });
+    const items = searchKnowledge({ q: topic ?? '', teamId, status: 'any', hideExpired: false, limit: 100 }) as {
+      author: string; owners: string; type: string;
+    }[];
+    const stat = new Map<string, { name: string; count: number; as_owner: number; types: Set<string> }>();
+    const bump = (name: string, asOwner: boolean, type: string) => {
+      if (!name) return;
+      const s = stat.get(name) ?? { name, count: 0, as_owner: 0, types: new Set<string>() };
+      s.count++; if (asOwner) s.as_owner++; s.types.add(type);
+      stat.set(name, s);
+    };
+    for (const it of items) {
+      bump(it.author, false, it.type);
+      try { for (const o of JSON.parse(it.owners || '[]') as string[]) bump(o, true, it.type); } catch { /* ignore */ }
+    }
+    return [...stat.values()]
+      .sort((a, b) => b.as_owner - a.as_owner || b.count - a.count)
+      .map((s) => ({ name: s.name, item_count: s.count, as_owner_count: s.as_owner, types: [...s.types] }));
+  });
+
   // 列表/搜索（?q=&type=&channel=&tag=&status=&includeExpired=1&team=）
   app.get('/api/knowledge', async (req, reply) => {
     const { q, type, channel, tag, status, includeExpired, team, project } = req.query as Record<string, string | undefined>;

@@ -109,5 +109,82 @@ server.tool(
   },
 );
 
+server.tool(
+  'kb_constraints',
+  '聚合某模块/主题的 spec（接口契约）+ adr（架构决策，含否决项）。Agent 干活前必查，adr 否决项是硬约束不得重新提议。',
+  {
+    module: z.string().describe('模块或主题关键词（如 订单 / 支付 / backend）'),
+    team: z.string().optional().describe('团队 id（默认 REMAINDER_TEAM 或 personal）'),
+  },
+  async ({ module, team }) => {
+    const params = new URLSearchParams({ module, team: team ?? DEFAULT_TEAM });
+    const items = await call(`/api/knowledge/constraints?${params}`);
+    if (!items.length) {
+      return { content: [{ type: 'text', text: `「${module}」没有相关 spec/adr 约束。` }] };
+    }
+    const text = `「${module}」的约束（${items.length} 条，adr 在前）：\n\n` + items
+      .map((it) => `[${it.type === 'adr' ? '⚠️adr' : 'spec'}] ${it.title}\n  更新:${(it.updated_at ?? '').slice(0, 10)} id: ${it.id}${it.status === 'concluded' ? '（已有结论）' : ''}`)
+      .join('\n\n');
+    return { content: [{ type: 'text', text: text + '\n\n用 kb_get 取全文。' }] };
+  },
+);
+
+server.tool(
+  'kb_who_knows',
+  '按 owners/作者分布回答“这事问谁”：谁沉淀过该主题、当过多少条目的负责人。',
+  {
+    topic: z.string().describe('主题关键词'),
+    team: z.string().optional().describe('团队 id（默认 REMAINDER_TEAM 或 personal）'),
+  },
+  async ({ topic, team }) => {
+    const params = new URLSearchParams({ topic, team: team ?? DEFAULT_TEAM });
+    const people = await call(`/api/knowledge/who-knows?${params}`);
+    if (!people.length) {
+      return { content: [{ type: 'text', text: `没人沉淀过「${topic}」相关内容。` }] };
+    }
+    const text = `「${topic}」相关的知识分布：\n\n` + people
+      .map((p) => `- ${p.name}：${p.item_count} 条（其中 ${p.as_owner_count} 条为负责人），类型:${p.types.join('/')}`)
+      .join('\n');
+    return { content: [{ type: 'text', text }] };
+  },
+);
+
+server.tool(
+  'kb_submit_draft',
+  '提交知识草稿（note/adr 等），状态为 draft，等人确认后转正。Agent 踩坑/否决/新约定后应沉淀。',
+  {
+    type: z.enum(['intel', 'share', 'note', 'rfc', 'guide', 'spec', 'adr']).describe('条目类型'),
+    title: z.string().describe('标题'),
+    content: z.string().describe('正文（Markdown）'),
+    channel: z.string().optional().describe('频道'),
+    tags: z.array(z.string()).optional().describe('标签'),
+    team: z.string().optional().describe('团队 id（默认 REMAINDER_TEAM 或 personal）'),
+  },
+  async ({ type, title, content, channel, tags, team }) => {
+    const res = await fetch(`${API}/api/knowledge`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(TOKEN ? { 'x-team-token': TOKEN } : {}),
+        ...(USER ? { 'x-user-name': encodeURIComponent(USER) } : {}),
+      },
+      body: JSON.stringify({
+        type, title, content,
+        team_id: team ?? DEFAULT_TEAM,
+        channels: channel ? [channel] : [],
+        tags: tags ?? [],
+        status: 'draft',
+        author: USER ? `${USER} 的 agent` : 'agent',
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Remainder API ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const it = await res.json();
+    return { content: [{ type: 'text', text: `草稿已提交（id: ${it.id}），状态 draft，等待人确认后转正。` }] };
+  },
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
