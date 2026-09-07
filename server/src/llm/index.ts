@@ -32,6 +32,25 @@ function getLlmConfig(): LlmConfig {
   };
 }
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/** 流式 chat（M29：feishu-clone AI 侧栏走 server 代理，key 不出 server）；未启用返回 null */
+export async function streamChatCompletion(messages: ChatMessage[]): Promise<Response | null> {
+  const llm = getLlmConfig();
+  if (!llm.enabled || !llm.apiKey) return null;
+  return fetch(`${llm.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${llm.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ model: llm.model, messages, stream: true, temperature: 0.7 }),
+  });
+}
+
 /** OpenAI 兼容 chat 调用；未启用/无 key 返回 null，调用失败抛错 */
 async function chat(system: string, user: string, temperature = 0.7): Promise<string | null> {
   const llm = getLlmConfig();

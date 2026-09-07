@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db/connection.js';
 import { localDate, now, uuid } from './helpers.js';
-import { generateWeeklyReport, polishText, petChat, askAboutText, formatDocument, fixTypos, checkTypos, type WeeklyData } from '../llm/index.js';
+import { generateWeeklyReport, polishText, petChat, askAboutText, formatDocument, fixTypos, checkTypos, streamChatCompletion, type WeeklyData, type ChatMessage } from '../llm/index.js';
+import { Readable } from 'node:stream';
 import { rebuildDocsFts, searchDocs, stripToText } from '../services/docSearch.js';
 
 const LLM_OFF = 'LLM 未启用或未配置 API Key（请在 server/.env 配置 LLM_ENABLED=true / LLM_API_KEY）';
@@ -198,6 +199,25 @@ export default async function llmRoutes(app: FastifyInstance) {
     } catch (e) {
       return reply.code(502).send({ error: `LLM 调用失败：${(e as Error).message}` });
     }
+  });
+
+  // 流式 chat（M29：feishu-clone AI 侧栏经 server 代理到 DeepSeek，SSE 透传）
+  app.post('/api/llm/chat-stream', async (req, reply) => {
+    const b = (req.body ?? {}) as { messages?: ChatMessage[] };
+    if (!b.messages?.length) return reply.code(400).send({ error: 'messages 必填' });
+    const upstream = await streamChatCompletion(b.messages);
+    if (!upstream) return reply.code(503).send({ error: 'LLM 未启用或未配置 key' });
+    if (!upstream.ok || !upstream.body) {
+      const t = await upstream.text().catch(() => '');
+      return reply.code(502).send({ error: `LLM 上游错误 ${upstream.status}：${t.slice(0, 300)}` });
+    }
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream).pipe(reply.raw);
+    return reply;
   });
 
   // 桌宠对话（自动检索知识库文档作为参考上下文）

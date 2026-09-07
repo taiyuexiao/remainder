@@ -26,6 +26,7 @@
 13. **PS 5.1 管道单结果 `.Count` 不可靠**（`(管道 | Where-Object).Count` 单结果时可能不是 1）——断言一律 `@(...).Count`
 14. **测试端口实例要先验证身份再测**：`Get-NetTCPConnection -LocalPort <port> -State Listen` 确认 OwningProcess 是刚启动的 pid，避免打到旧 dist 残留实例
 15. **puppeteer 按文本点击会被遮罩下的同名元素截胡**：弹窗里的点击必须限定容器选择器（如 `div.fixed.z-50 button`），否则点到遮罩触发 onClose，测试假阳性
+16. **编辑器“解析失败回退空文档”是数据毁灭开关**（M29 血训）：剪藏转换的文档是 HTML 非 JSON，新内核 JSON.parse 失败回退空文档 + 卸载自动保存 = 原文被覆盖。规则：① 非 JSON 内容原样交给 Tiptap 解析，绝不动空文档 ② 编辑器加脏标记，未真正编辑不落盘 ③ e2e 一律用新建的测试文档，禁开真实文档做写操作
 
 ## 环境
 
