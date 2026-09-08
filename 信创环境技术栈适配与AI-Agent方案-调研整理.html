@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信创环境技术栈适配与 AI Agent 辅助方案 · 调研整理</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #F4F3EE;
+    color: #1A1B1C;
+    line-height: 1.7;
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  .hero {
+    background: linear-gradient(135deg, rgba(158,172,234,0.18), rgba(139,200,234,0.28));
+    border-radius: 16px;
+    padding: 28px 28px 24px;
+    margin-bottom: 24px;
+  }
+  .hero .tag {
+    display: inline-block; font-size: 12px; color: #4a5a8a;
+    background: rgba(255,255,255,0.7); border: 0.5px solid rgba(0,0,0,0.08);
+    padding: 2px 10px; border-radius: 999px; margin-bottom: 10px;
+  }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: 0.5px; }
+  .hero p { font-size: 13.5px; color: #444; margin-top: 8px; }
+  .meta { font-size: 12px; color: #6B7280; margin-top: 10px; }
+  .card {
+    background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 14px; padding: 22px 24px; margin-bottom: 20px;
+  }
+  h2 {
+    font-size: 17px; font-weight: 700; margin-bottom: 14px;
+    padding-left: 10px; border-left: 4px solid #9EACEA;
+  }
+  h3 { font-size: 14.5px; font-weight: 600; margin: 18px 0 8px; }
+  p, li { font-size: 13.5px; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  .kpi { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0 4px; }
+  .kpi .box {
+    flex: 1 1 170px; padding: 12px 14px; border-radius: 12px;
+    background: linear-gradient(135deg, rgba(158,172,234,0.12), rgba(158,172,234,0.22));
+  }
+  .kpi .box .n { font-size: 17px; font-weight: 700; color: #1A1B1C; }
+  .kpi .box .d { font-size: 12px; color: #555; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 10px 0; }
+  th, td { border: 1px solid #E4E3DD; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #F0F0EC; font-weight: 600; }
+  .ok   { color: #2e7d32; font-weight: 600; }
+  .warn { color: #b26a00; font-weight: 600; }
+  .bad  { color: #c62828; font-weight: 600; }
+  code {
+    font-family: Consolas, "Courier New", monospace; font-size: 12px;
+    background: #F0F0EC; border: 0.5px solid rgba(0,0,0,0.08);
+    border-radius: 6px; padding: 2px 6px;
+  }
+  pre {
+    background: #26272B; color: #E8E8E8; border-radius: 10px;
+    padding: 14px 16px; font-size: 12.5px; overflow-x: auto; margin: 10px 0;
+    line-height: 1.6;
+  }
+  pre code { background: transparent; border: none; color: inherit; padding: 0; }
+  .note {
+    background: rgba(250,173,20,0.10); border-left: 3px solid #FAAD14;
+    padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 12.5px; margin: 10px 0;
+  }
+  .good {
+    background: rgba(82,196,26,0.10); border-left: 3px solid #52C41A;
+    padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 12.5px; margin: 10px 0;
+  }
+  .src { font-size: 12px; color: #6B7280; margin-top: 12px; padding-top: 10px; border-top: 1px dashed #E4E3DD; }
+  .footer { text-align: center; font-size: 12px; color: #9CA3AF; margin-top: 28px; }
+  .two-col { display: flex; gap: 16px; flex-wrap: wrap; }
+  .two-col > div { flex: 1 1 300px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <span class="tag">调研整理 · 内部参考</span>
+    <h1>信创环境技术栈适配与 AI Agent 辅助方案</h1>
+    <p>基于多轮调研（GitHub / Google / 中文编程社区）整理的结论：麒麟、方德等信创环境下的 Python / Java / Nacos / Docker / TDSQL 适配真相，以及"用 AI Agent 处理编译与版本迁移"的可行性与正确架构。</p>
+    <div class="meta">整理日期：2026-09-07 ｜ 场景：公司内网信创环境（银河麒麟 / 中科方德），内网隔离</div>
+  </div>
+
+  <!-- 一页结论 -->
+  <div class="card">
+    <h2>一、一页结论</h2>
+    <div class="kpi">
+      <div class="box"><div class="n">不是"都得重新编译"</div><div class="d">Python 分三层看：纯 py 包直接用，C 扩展包看架构，只有龙芯才是常态</div></div>
+      <div class="box"><div class="n">Java 栈最省心</div><div class="d">JVM 字节码跨架构，换 JDK 即可；Nacos 纯 Java 可直接跑</div></div>
+      <div class="box"><div class="n">真正工作量大头</div><div class="d">内网离线分发（私有 PyPI / Maven 仓库），不是编译</div></div>
+      <div class="box"><div class="n">AI Agent 可行但定位要准</div><div class="d">做"构建机上的编译攻坚 + 开发/迁移助手"，不是万能编译工人</div></div>
+    </div>
+    <p><b>一句话</b>：同事说"都得重新编译"只在<b>龙芯 LoongArch</b>机器上接近事实；x86（海光/兆芯）和 ARM（飞腾/鲲鹏）信创机的正确做法是<b>构建机集中编译一次 → 私有仓库分发 → 桌面零编译</b>，AI Agent 在其中做攻坚和自动化。</p>
+  </div>
+
+  <!-- Python -->
+  <div class="card">
+    <h2>二、Python 在信创环境的适配真相</h2>
+    <p>麒麟、中科方德本质都是标准 Linux 发行版（Debian / CentOS 体系），Python 开箱即用（预装 3.6~3.9）。问题不在操作系统，而在<b>离线分发 + CPU 架构</b>。</p>
+    <h3>2.1 按包类型分</h3>
+    <table>
+      <tr><th>包类型</th><th>示例</th><th>是否需要编译</th></tr>
+      <tr><td>纯 Python 包</td><td>requests、flask、大部分 py 库</td><td class="ok">不需要。源码即 .py，与操作系统无关，直接 pip install</td></tr>
+      <tr><td>带 C/C++/Rust 扩展</td><td>numpy、pandas、psycopg2、cryptography</td><td class="warn">多数不需要。PyPI 官方发布 manylinux wheel（x86_64 / aarch64 都有），glibc 兼容即可直接装</td></tr>
+      <tr><td>冷门包 / 非主流架构</td><td>含汇编优化、无官方 wheel 的库</td><td class="bad">需要源码编译，且可能手动替换 config.guess/config.sub</td></tr>
+    </table>
+    <h3>2.2 按 CPU 架构分</h3>
+    <table>
+      <tr><th>场景</th><th>是否要重新编译</th></tr>
+      <tr><td>麒麟/方德 + x86_64（兆芯、海光）</td><td class="ok">❌ 基本不用，manylinux wheel 直接装</td></tr>
+      <tr><td>麒麟/方德 + ARM64（飞腾、鲲鹏）</td><td class="warn">⚠️ 主流包不用（numpy/pandas 等已有 aarch64 官方 wheel），冷门包要编译</td></tr>
+      <tr><td>麒麟/方德 + 龙芯 LoongArch</td><td class="bad">✅ 含 C 扩展的包大多要源码编译（PyPI 几乎没有 loongarch64 wheel）</td></tr>
+      <tr><td>无论哪种架构</td><td class="warn">内网离线分发（pip download / 私有源）是绕不开的工作</td></tr>
+    </table>
+    <h3>2.3 常见坑（按出现频率排序）</h3>
+    <ol>
+      <li><b>离线分发问题（约 80% 工作量）</b>：内网不能上 PyPI，每个包都要想办法弄进来。</li>
+      <li><b>Python 版本过老</b>：麒麟自带多为 3.6/3.7，新包会拒绝安装（Requires-Python &gt;= 3.9）。</li>
+      <li><b>wheel 缺失 → 编译问题</b>：x86/ARM 上只发生在少数包；龙芯上才是常态。</li>
+      <li><b>系统依赖缺失</b>：编译时缺 gcc、python3-dev、libssl-dev、libffi-dev 等头文件包。</li>
+      <li><b>代码迁移</b>：老项目 2.x / 3.6 升级语法、依赖版本冲突。</li>
+    </ol>
+    <div class="good"><b>离线安装标准姿势</b>：外网机器按目标平台下载 wheel 拷入内网，桌面端零编译安装。<br>
+<pre># 外网机器（可为 ARM64 麒麟指定平台下载）
+pip download &lt;包名&gt; --platform manylinux2014_aarch64 \
+    --python-version 38 --only-binary=:all: -d ./packages
+
+# 内网机器离线安装
+pip install --no-index --find-links=./packages -r requirements.txt</pre>
+    或搭建内网私有 PyPI（pypiserver + gunicorn + nginx，pip config set global.index-url http://内网IP/simple）。</div>
+  </div>
+
+  <!-- Java -->
+  <div class="card">
+    <h2>三、Java 技术栈（Java / Nacos / Docker / TDSQL）</h2>
+    <p>Java 的跨平台在 JVM 层面实现：编译出的 .class/.jar 是字节码，<b>任何架构都不用重新编译</b>。唯一要找对的是 JDK 本身。</p>
+    <h3>3.1 Java / JDK 选择</h3>
+    <table>
+      <tr><th>CPU 架构</th><th>JDK 选择</th></tr>
+      <tr><td>x86_64（海光、兆芯）</td><td>Oracle / OpenJDK 随便用，无区别</td></tr>
+      <tr><td>ARM64（飞腾、鲲鹏）</td><td>Oracle 官方 aarch64 版；推荐华为毕昇 JDK、阿里 Dragonwell、腾讯 Kona</td></tr>
+      <tr><td>龙芯 LoongArch</td><td>龙芯自研 OpenJDK 移植版 / 毕昇 JDK LoongArch 版，能用但生态最弱</td></tr>
+    </table>
+    <div class="note"><b>真正的坑只有一处</b>：JNI 本地库（.so）依赖——国密加密库、netty-native、rocksdb、JavaCV 等内部带 C 编译产物，和 Python 的 C 扩展一样需要对应架构版本。Maven 依赖（绝大多数）直接下下来就能用，内网搭 Nexus/Artifactory 私服即可。</div>
+    <h3>3.2 Nacos</h3>
+    <p>纯 Java 编写，<code>nacos-server-x.x.x.tar.gz</code> 与架构无关，JDK 对就能跑；官方 Docker 镜像含 arm64（multi-arch）。注意两点：</p>
+    <ul>
+      <li>麒麟自带 OpenJDK 有时过老或有兼容问题（Nacos 官方 FAQ 有"麒麟 V10 部署 coredump"案例），建议换装对应架构的毕昇 / Dragonwell JDK。</li>
+      <li>龙芯上建议直接 tar 包 + 龙芯 JDK 部署，别折腾容器。</li>
+    </ul>
+    <h3>3.3 Docker</h3>
+    <table>
+      <tr><th>平台</th><th>结论</th></tr>
+      <tr><td>x86_64 / aarch64 麒麟</td><td class="ok">支持。内网用官方静态二进制包离线安装（download.docker.com/linux/static/stable/ 下有 aarch64 目录）</td></tr>
+      <tr><td>镜像架构</td><td class="warn">镜像分 CPU 架构！x86 上 docker save 的镜像拿到 ARM 麒麟报 exec format error；pull 时指定 --platform linux/arm64，或用 docker buildx 构建多架构镜像</td></tr>
+      <tr><td>龙芯 LoongArch</td><td class="bad">Docker 官方不支持，生态基本没有，放弃容器直接部署；部分信创环境用华为 iSula / Podman 替代</td></tr>
+    </table>
+    <h3>3.4 TDSQL（MySQL 版）——应用侧几乎零改造</h3>
+    <ul>
+      <li>完全兼容 MySQL 协议：Java 侧直接用官方 <code>mysql-connector-j</code>，连接串 <code>jdbc:mysql://...</code> 与驱动类 <code>com.mysql.cj.jdbc.Driver</code> 不变。</li>
+      <li>MyBatis / Hibernate 继续用 MySQL 方言；Nacos 持久化库可直接建在 TDSQL 上（标准 MySQL schema）。</li>
+    </ul>
+    <table>
+      <tr><th>形态</th><th>注意点</th></tr>
+      <tr><td>集中式实例</td><td>当普通 MySQL 用，基本无感</td></tr>
+      <tr><td>分布式实例</td><td class="warn">有额外约束：建表要考虑 shardkey（分片键）、跨分片 JOIN 与大事务受限、部分 SQL 语法不支持、不支持压缩协议。新项目重要表先与 DBA 确认表类型（分布式表 / 广播表 / 普通表）</td></tr>
+    </table>
+    <h3>3.5 整体对比</h3>
+    <table>
+      <tr><th>组件</th><th>x86 信创</th><th>ARM 信创</th><th>龙芯信创</th></tr>
+      <tr><td>Java 应用</td><td class="ok">零改动</td><td class="ok">换 ARM JDK 即可</td><td class="warn">用龙芯 JDK，JNI 依赖小心</td></tr>
+      <tr><td>Nacos</td><td class="ok">可跑</td><td class="ok">可跑</td><td class="warn">tar 部署，别用 Docker</td></tr>
+      <tr><td>Docker</td><td class="ok">可跑</td><td class="warn">镜像要 arm64</td><td class="bad">基本别用</td></tr>
+      <tr><td>TDSQL</td><td class="ok">驱动零改动（注意分布式实例约束）</td><td class="ok">同左</td><td class="ok">同左</td></tr>
+    </table>
+    <div class="good"><b>结论</b>：Java 栈 + TDSQL 是信创改造里阻力最小的路线，工作量集中在三件事——换对应架构 JDK、离线搭 Maven 私服、Docker 镜像按架构重建，应用代码基本不动。</div>
+  </div>
+
+  <!-- AI Agent -->
+  <div class="card">
+    <h2>四、AI Agent 能否部署在信创桌面，解决编译与迁移问题？</h2>
+    <h3>4.1 Agent 本体能否跑在麒麟桌面？</h3>
+    <table>
+      <tr><th>平台</th><th>结论</th></tr>
+      <tr><td>x86_64 / ARM64 麒麟</td><td class="ok">可以。Claude Code 官方支持 Linux x64/ARM64（npm 有 @anthropic-ai/claude-code-linux-arm64 原生包）；Aider 是纯 Python 程序，Python 3.9+ 即可跑</td></tr>
+      <tr><td>龙芯 LoongArch</td><td class="bad">很勉强。Node.js 无官方 LoongArch 构建 → Node 系 agent（Claude Code 等）基本不可用；Python 系 agent（Aider）理论上可行，但要用龙芯自己的 Python</td></tr>
+    </table>
+    <div class="note"><b>两个前提（尤其第二个是关键）</b>：① Agent 本体能跑（如上）；② <b>内网要有可访问的模型端点</b>——内网隔离访问不了公网 API，需公司私有化部署开源模型（Qwen / DeepSeek + vLLM），agent 配 OpenAI 兼容端点指过去；或用合规代理网关。</div>
+    <h3>4.2 内网模型来源（国内已有成熟方案）</h3>
+    <ul>
+      <li><b>开源自建</b>：Ollama / vLLM 部署 Qwen2.5-Coder / DeepSeek-Coder + VS Code Continue 插件（apiBase 指向内网模型服务器）；MonkeyCode（长亭开源）明确支持完全离线 Air-gapped 模式，官方文档给出金融企业案例（16C/64G + vLLM 跑 Qwen2.5-Coder 2B，50 人团队约 2 小时部署完）。</li>
+      <li><b>商业私有化</b>：通义灵码私有化版、百度 Comate 私有化部署版、华为 CodeArts Snap（明确支持信创合规、鲲鹏 + 欧拉生态）、TRAE 私有化部署。</li>
+      <li><b>提醒</b>：私有化模型能力比云端旗舰弱一档，选型建议用真实任务做 POC（有论文显示模型在 agent 场景会出现输出格式错误、空响应等失败模式，占失败案例约 50%）。</li>
+    </ul>
+    <h3>4.3 Agent 能解决什么、不能解决什么</h3>
+    <div class="two-col">
+      <div>
+        <p><b class="ok">✅ Agent 擅长（自动化收益大）</b></p>
+        <ul>
+          <li>编译报错诊断：读 Failed building wheel 日志 → 判断缺 gcc / 缺头文件 / 缺系统库 → 补装重试（最擅长的循环）</li>
+          <li>修老旧编译脚本：替换 config.guess/config.sub、给 setup.py 打补丁、改编译参数</li>
+          <li>批量生成离线包：写脚本 pip download 指定平台 wheel，生成 requirements.txt</li>
+          <li>Python 版本升级重构：2→3、3.6→3.11 语法迁移、依赖对齐、冲突梳理</li>
+          <li>环境巡检：检查每台机器架构 / glibc / Python 版本，输出适配矩阵</li>
+        </ul>
+      </div>
+      <div>
+        <p><b class="bad">❌ Agent 解决不了（别指望）</b></p>
+        <ul>
+          <li>没有编译器变不出编译器——工具链和系统依赖包必须物理到位</li>
+          <li>真正的架构移植（x86 汇编 / SIMD 优化移植到龙芯）是底层活，agent 帮忙但成功率不稳定</li>
+          <li>只有 x86 wheel 的商业 / 闭源包，任何 agent 都逆向不出 ARM 版</li>
+          <li>在每台桌面各自编译本身就是错误架构（巨大浪费）</li>
+        </ul>
+      </div>
+    </div>
+    <h3>4.4 学术实测数据（管理预期）</h3>
+    <table>
+      <tr><th>发现</th><th>来源</th></tr>
+      <tr><td>Agent 修编译错误的标准模式是 compile-fix loop（编译→读报错→改→重编译）；约 33% 的失败运行卡在连续 3 次以上编译错误解不开的循环里，烧光 token 预算</td><td>arXiv 2604.11270（LLM Agent 软件分析任务评估）</td></tr>
+      <tr><td>环境构建（Docker / 编译）是 agent 最大失败类别之一，有的 agent 在 120 次构建迭代里反复犯同样错误</td><td>同上</td></tr>
+      <tr><td>带自我修复循环（看编译错误→修→重试）的 AI 代码转换成功率从 ~68% 提到 85%+——agent 能干这活，但必须有可执行的反馈环境</td><td>K3Trans 框架（2025）</td></tr>
+      <tr><td>顶级 agent 修真实仓库 issue 成功率约 21%（Rust）到 50-80%（Python / SWE-bench），不是 100% 可靠</td><td>arXiv 2602.22764 / SWE-bench</td></tr>
+    </table>
+    <h3>4.5 正确架构：不要把"编译"当日常动作</h3>
+    <pre>外网/互联网区
+  └─ 一台同架构"构建机"（ARM 麒麟或龙芯，可临时上网）
+       └─ AI Agent 在这里批量干活：
+          pip download / pip wheel 拉齐所有依赖
+          编译失败的包 → agent 诊断修复 → 产出 wheel
+              │
+              ▼ 一次性拷贝
+内网私有仓库（Nexus / pypiserver / Maven 私服 / 共享盘 wheel 库）
+              │
+              ▼
+所有信创桌面：pip install -i http://内网仓库/simple
+         （和公网体验一模一样，桌面永远不需要编译）</pre>
+    <p><b>编译只做一次，在构建机上做；桌面端只装现成 wheel。</b> Agent 的价值集中在构建机（攻坚难编译包）和代码迁移（版本升级重构）上，而不是分散在每台桌面当"编译工人"。</p>
+  </div>
+
+  <!-- 落地清单 -->
+  <div class="card">
+    <h2>五、落地行动清单</h2>
+    <ol>
+      <li><b>先确认架构</b>：<code>uname -m</code>。x86_64 / aarch64 的话问题已小一半；确认是否有龙芯机器。</li>
+      <li><b>内网备好三样东西</b>：对应架构的 gcc 工具链 rpm/deb 源；较新版本 Python（源码编译装好）；私有 PyPI 仓库（pypiserver / Nexus）。</li>
+      <li><b>模型 + Agent</b>：如有 GPU 服务器，部署 Qwen2.5-Coder / DeepSeek + vLLM，桌面装 Aider / Kimi CLI / Continue 指向内网端点；或评估通义灵码私有化等成品。</li>
+      <li><b>版本升级重构交给 Agent，但必须配测试</b>：让 agent 改代码 + 跑 pytest 循环，人只做 review。论文显示 agent 修复的补丁有相当比例是"弱测试放水的可疑补丁"，没有测试兜底不要合入。</li>
+      <li><b>难编译包集中攻坚</b>：在构建机上用 agent 反复试（装依赖→改参数→重编），成功后 wheel 入库存档，全公司复用。</li>
+    </ol>
+  </div>
+
+  <!-- 证据 -->
+  <div class="card">
+    <h2>六、调研证据来源概览</h2>
+    <ul>
+      <li><b>GitHub</b>：pypa/manylinux（wheel 平台标签体系）、cibuildwheel、PaddlePaddle 龙芯 issue、anthropics/claude-code ARM64 相关 issue。</li>
+      <li><b>Google / 英文社区</b>：aarch64 上跑 Claude Code 的部署指南；Aider 在 ARM Linux 的 wheel hunt 实践。</li>
+      <li><b>中文社区</b>：CSDN / 博客园 / 掘金 / SegmentFault / 阿里云开发者社区 / 华为云——麒麟 V10 离线安装 pip/whl、pypiserver 建私有源、飞腾 ARM 麒麟部署 Nacos、龙芯编译 Python、通义灵码/Comate/CodeArts Snap 私有化等大量实战文章。</li>
+      <li><b>论文</b>：arXiv 2604.11270（LLM Agent 软件分析任务评估）、2602.22764（agent 修 issue 成功率）、K3Trans（2025，带自我修复的代码转换）。</li>
+    </ul>
+    <div class="src">说明：本整理基于 2026-09-06 多轮检索（GitHub / Google / 中文编程社区）的结论汇总，具体文章链接见原始检索记录。涉及公司内部选型与报价时请以供应商最新资料为准。</div>
+  </div>
+
+  <div class="footer">信创环境技术栈适配与 AI Agent 辅助方案 · 调研整理</div>
+</div>
+</body>
+</html>

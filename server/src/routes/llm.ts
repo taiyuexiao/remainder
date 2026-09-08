@@ -215,6 +215,8 @@ export default async function llmRoutes(app: FastifyInstance) {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      // reply.raw 直写绕过 @fastify/cors 的 onSend 钩子，CORS 头须手动补（否则浏览器拦截）
+      'Access-Control-Allow-Origin': '*',
     });
     Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream).pipe(reply.raw);
     return reply;

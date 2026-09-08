@@ -242,27 +242,30 @@ function getCurrentDateForType(type: 'daily' | 'weekly' | 'monthly'): string {
 
 function ReportEditor({ reportId, onChange }: { reportId: string; onChange: () => void }) {
   const [report, setReport] = useState<Report | null>(null);
-  const [title, setTitle] = useState('');
-  const [lastSaved, setLastSaved] = useState('');
-  const [saving, setSaving] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let active = true;
     api
       .getReport(reportId)
       .then((r) => {
-        if (active) {
-          setReport(r);
-          setTitle(r.title);
-          setLastSaved(r.updated_at);
-        }
+        if (active) setReport(r);
       })
       .catch((e) => alert((e as Error).message));
     return () => {
       active = false;
     };
   }, [reportId]);
+
+  if (!report) return <div className="h-full flex items-center justify-center text-slate-400 text-sm">加载中…</div>;
+  // 与文档页同模式：报告拿到后再建编辑器（key 强制按报告重建，内容挂载时即就位）
+  return <ReportEditorInner key={report.id} report={report} onChange={onChange} />;
+}
+
+function ReportEditorInner({ report, onChange }: { report: Report; onChange: () => void }) {
+  const [title, setTitle] = useState(report.title);
+  const [lastSaved, setLastSaved] = useState(report.updated_at);
+  const [saving, setSaving] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -276,7 +279,7 @@ function ReportEditor({ reportId, onChange }: { reportId: string; onChange: () =
       Image,
       Placeholder.configure({ placeholder: '输入内容…' }),
     ],
-    content: report ? parseContent(report.content) : JSON.parse(emptyDocContent),
+    content: parseContent(report.content),
     editorProps: {
       attributes: {
         class: 'focus:outline-none min-h-[20rem] px-8 py-6',
@@ -332,7 +335,7 @@ function ReportEditor({ reportId, onChange }: { reportId: string; onChange: () =
   }, [editor, save, title]);
 
   useEffect(() => {
-    if (!editor || !report) return;
+    if (!editor) return;
     const handler = () => {
       const json = editor.getJSON();
       scheduleSave({ content: JSON.stringify(json) });
@@ -341,7 +344,7 @@ function ReportEditor({ reportId, onChange }: { reportId: string; onChange: () =
     return () => {
       editor.off('update', handler);
     };
-  }, [editor, report, scheduleSave]);
+  }, [editor, scheduleSave]);
 
   useEffect(() => {
     return () => {
@@ -349,7 +352,7 @@ function ReportEditor({ reportId, onChange }: { reportId: string; onChange: () =
     };
   }, []);
 
-  if (!report) return <div className="h-full flex items-center justify-center text-slate-400 text-sm">加载中…</div>;
+  if (!editor) return <div className="h-full flex items-center justify-center text-slate-400 text-sm">加载中…</div>;
 
   return (
     <>

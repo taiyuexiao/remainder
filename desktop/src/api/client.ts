@@ -385,6 +385,19 @@ export const api = {
   deleteKnowledge: (id: string) =>
     req<{ deleted: string }>(`/api/knowledge/${id}`, { method: 'DELETE' }),
 
+  // 个性化背景（M30 P1）
+  uploadBackground: async (file: File): Promise<{ file: string }> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = teamToken();
+    if (token) headers['x-team-token'] = token;
+    const res = await fetch(`${API}/api/assets/background`, { method: 'POST', headers, body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    return res.json();
+  },
+  deleteBackground: () => req<{ deleted: string | null }>('/api/assets/background', { method: 'DELETE' }),
+
   // 团队空间（M24）
   listTeams: () => req<Team[]>('/api/teams'),
   createTeam: (b: { name: string; description?: string }) =>

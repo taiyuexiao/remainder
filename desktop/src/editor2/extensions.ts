@@ -34,7 +34,7 @@ import { BlockSelect } from './blockSelect'
 import { markdownToTiptapJSON, looksLikeMarkdown } from './mdPaste'
 import { FontSizeAttr } from './textStyle'
 import { parseTableText, rowsToTableHtml } from './tableDetect'
-import { DOMParser as PmDOMParser } from '@tiptap/pm/model'
+import { DOMParser as PmDOMParser, Slice } from '@tiptap/pm/model'
 
 /** 飞书支持标题 1~9 级；Tiptap Level 类型只声明到 6，此处扩展 */
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as unknown as Level[]
@@ -139,20 +139,27 @@ export function editorPropsForPaste(readFileAsDataURL: (file: File) => Promise<s
       }
       // 2) 表格文本（Tab/多空格/管道分列）→ 自动转表格（M14 tableDetect 回植）
       const text = event.clipboardData?.getData('text/plain') ?? ''
-      const tableRows = text ? parseTableText(text) : null
-      if (tableRows) {
-        event.preventDefault()
-        const dom = new window.DOMParser().parseFromString(rowsToTableHtml(tableRows), 'text/html')
-        const slice = PmDOMParser.fromSchema(view.state.schema).parseSlice(dom.body)
-        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView())
-        return true
-      }
-      // 3) Markdown 文本 → 自动成块
-      if (text && looksLikeMarkdown(text)) {
-        event.preventDefault()
-        const json = markdownToTiptapJSON(text)
-        view.dispatch(view.state.tr.replaceSelection(json as never).scrollIntoView())
-        return true
+      try {
+        const tableRows = text ? parseTableText(text) : null
+        if (tableRows) {
+          event.preventDefault()
+          const dom = new window.DOMParser().parseFromString(rowsToTableHtml(tableRows), 'text/html')
+          const slice = PmDOMParser.fromSchema(view.state.schema).parseSlice(dom.body)
+          view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView())
+          return true
+        }
+        // 3) Markdown 文本 → 自动成块
+        if (text && looksLikeMarkdown(text)) {
+          event.preventDefault()
+          // doc JSON → ProseMirror Slice（不能直接塞 plain object，否则抛 RangeError 粘贴全灭）
+          const docNode = view.state.schema.nodeFromJSON(markdownToTiptapJSON(text))
+          view.dispatch(view.state.tr.replaceSelection(new Slice(docNode.content, 0, 0)).scrollIntoView())
+          return true
+        }
+      } catch (err) {
+        // 任何转换异常都不许影响默认粘贴（M30 教训：粘贴是底线功能）
+        console.warn('[paste] 转换失败，回退默认粘贴', err)
+        return false
       }
       return false
     },

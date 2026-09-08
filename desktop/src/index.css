@@ -131,12 +131,12 @@ body.widget-mode,
 .clip-preview th, .clip-preview td { border: 1px solid #e2e8f0; padding: 0.5em 0.75em; text-align: left; }
 .clip-preview th { background: #f8fafc; font-weight: 600; }
 
-/* »­²¼¿¨Æ¬¸»ÎÄ±¾£¨M13£© */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ¬ï¿½ï¿½ï¿½Ä±ï¿½ï¿½ï¿½M13ï¿½ï¿½ */
 .card-rich p { margin: 0 0 0.25em; }
 .card-rich p:last-child { margin-bottom: 0; }
 .card-rich mark { border-radius: 2px; padding: 0 1px; }
 
-/* Ð±¸Ü²Ëµ¥£¨M14£© */
+/* Ð±ï¿½Ü²Ëµï¿½ï¿½ï¿½M14ï¿½ï¿½ */
 .slash-menu { position: fixed; z-index: 9999; min-width: 230px; max-height: 330px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.15); padding: 4px; }
 .slash-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 8px; text-align: left; background: none; border: none; cursor: pointer; }
 .slash-item.active, .slash-item:hover { background: #eef2ff; }
@@ -145,10 +145,10 @@ body.widget-mode,
 .slash-text small { display: block; font-size: 10px; color: #94a3b8; }
 .slash-empty { padding: 8px 10px; font-size: 12px; color: #94a3b8; }
 
-/* ÎÄµµÁ´½Ó£¨M14£© */
+/* ï¿½Äµï¿½ï¿½ï¿½ï¿½Ó£ï¿½M14ï¿½ï¿½ */
 .ProseMirror a { color: #4f46e5; text-decoration: underline; cursor: pointer; }
 
-/* Ð±¸Ü²Ëµ¥£¨M15 ·ÉÊéÊ½·Ö×é£© */
+/* Ð±ï¿½Ü²Ëµï¿½ï¿½ï¿½M15 ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ï¿½é£© */
 .slash-menu { position: fixed; z-index: 9999; width: 240px; max-height: 360px; overflow-y: auto; background: #fff; border: 1px solid rgba(15,23,42,.08); border-radius: 10px; box-shadow: 0 6px 24px rgba(15,23,42,.13), 0 0 1px rgba(15,23,42,.1); padding: 6px; }
 .slash-group { padding: 7px 10px 3px; font-size: 11px; color: #9ca3af; user-select: none; }
 .slash-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 8px; border-radius: 6px; background: none; border: none; cursor: pointer; text-align: left; }
@@ -157,7 +157,7 @@ body.widget-mode,
 .slash-title { font-size: 13px; color: #1f2937; }
 .slash-empty { padding: 10px 12px; font-size: 12px; color: #9ca3af; }
 
-/* Ñ¡ÖÐÎÄ±¾¸¡¶¯¹¤¾ßÀ¸£¨M15 ·ÉÊéÊ½£© */
+/* Ñ¡ï¿½ï¿½ï¿½Ä±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½M15 ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½ */
 .float-toolbar { display: flex; align-items: center; gap: 2px; background: #fff; border: 1px solid rgba(15,23,42,.08); border-radius: 10px; box-shadow: 0 6px 24px rgba(15,23,42,.15), 0 0 1px rgba(15,23,42,.1); padding: 4px 6px; }
 .ft-select { font-size: 12px; color: #374151; background: transparent; border: none; outline: none; padding: 4px 2px; border-radius: 6px; cursor: pointer; max-width: 76px; }
 .ft-select:hover { background: #f1f5f9; }
@@ -171,14 +171,14 @@ body.widget-mode,
 .ft-color-a { font-size: 13px; font-weight: 600; }
 .ft-color-hl { font-size: 13px; font-weight: 600; background: #fef08a; border-radius: 3px; padding: 0 2px; }
 
-/* ±í¸ñÁÐ¿íÍÏ×§£¨M15£© */
+/* ï¿½ï¿½ï¿½ï¿½ï¿½Ð¿ï¿½ï¿½ï¿½×§ï¿½ï¿½M15ï¿½ï¿½ */
 .ProseMirror .tableWrapper { overflow-x: auto; }
 .ProseMirror table { border-collapse: collapse; table-layout: fixed; }
 .ProseMirror .selectedCell:after { content: ""; position: absolute; inset: 0; background: rgba(99,102,241,.12); pointer-events: none; z-index: 2; }
 .ProseMirror .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: #818cf8; pointer-events: none; }
 .ProseMirror.resize-cursor { cursor: col-resize; }
 
-/* Ð±¸Ü²Ëµ¥Î¢µ÷£¨M21 ·ÉÊé¶ÔÆë£© */
+/* Ð±ï¿½Ü²Ëµï¿½Î¢ï¿½ï¿½ï¿½ï¿½M21 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë£© */
 .slash-menu { width: 252px; padding: 5px; border-radius: 12px; }
 .slash-group { padding: 8px 10px 3px; font-size: 10px; font-weight: 500; color: #a1a1aa; letter-spacing: 0.02em; }
 .slash-item { gap: 10px; padding: 6px 8px; border-radius: 8px; }
@@ -195,3 +195,9 @@ body.widget-mode,
 .slash-empty { padding: 10px 12px; font-size: 12px; color: #8f959e; }
 .slash-menu::-webkit-scrollbar { width: 8px; }
 .slash-menu::-webkit-scrollbar-thumb { background: #dcdee0; border-radius: 4px; border: 2px solid #fff; }
+/* M30 ä¸ªæ€§åŒ–èƒŒæ™¯ï¼šå¯ç”¨åŽå£³å±‚åŠé€æ˜Žé€å‡ºåº•å›¾ï¼ˆå¯è¯»æ€§ä¼˜å…ˆï¼šå†…å±‚å¡ç‰‡ä¿æŒä¸é€æ˜Žï¼‰ */
+body.app-has-bg .app-root { background: transparent !important; }
+body.app-has-bg aside { background-color: rgba(255, 255, 255, 0.85) !important; backdrop-filter: blur(8px); }
+body.app-has-bg main > div:first-child { background-color: rgba(248, 250, 252, 0.85) !important; }
+/* æ–‡æ¡£ç¼–è¾‘å™¨ä¾‹å¤–ï¼šPyCharm å¼â€”â€”ç¼–è¾‘åŒºæ°¸è¿œå®žå¿ƒï¼ŒèƒŒæ™¯åªéœ²åœ¨è¾¹æ¡†ç•™ç™½ */
+body.app-has-bg main > div.fe-doc-root { background-color: #fff !important; }

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, type Live2dModelInfo } from '../api/client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, API_BASE, type Live2dModelInfo } from '../api/client';
+import { loadBgConfig, saveBgConfig, type BgConfig } from '../components/BackgroundLayer';
 import { PET_MODE_KEY, PET_MODEL_KEY, type PetMode } from '../pet/renderers/types';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
@@ -341,6 +342,156 @@ function NetworkSection() {
   );
 }
 
+/** 个性化（M30 P1）：背景图上传 + 透明度/毛玻璃/填充模式，实时预览（背景层全应用生效） */
+function PersonalizeSection() {
+  const [cfg, setCfg] = useState<BgConfig>(loadBgConfig);
+  const [hasImage, setHasImage] = useState<boolean | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/assets/background`, { method: 'HEAD' })
+      .then((r) => setHasImage(r.ok))
+      .catch(() => setHasImage(false));
+  }, [cfg.ts]);
+
+  const update = (patch: Partial<BgConfig>) => {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    saveBgConfig(next);
+  };
+
+  const upload = async (f: File) => {
+    setUploading(true);
+    try {
+      await api.uploadBackground(f);
+      update({ ts: Date.now(), enabled: true });
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium">🎨 个性化背景</h3>
+        <p className="text-xs text-slate-400 mt-0.5">
+          上传图片作为应用背景。图保持鲜艳，字靠「遮罩纱布」保证可读；改动实时生效。
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void upload(f);
+            e.target.value = '';
+          }}
+        />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+        >
+          {uploading ? '上传中…' : hasImage ? '更换图片' : '上传背景图'}
+        </button>
+        {hasImage && (
+          <>
+            <button
+              onClick={() => update({ enabled: !cfg.enabled })}
+              className={`rounded-lg text-xs px-3 py-1.5 ${cfg.enabled ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}
+            >
+              {cfg.enabled ? '背景已启用 ✓' : '背景已停用'}
+            </button>
+            <button
+              onClick={async () => {
+                await api.deleteBackground();
+                setHasImage(false);
+                update({ enabled: false });
+              }}
+              className="rounded-lg bg-slate-100 text-red-500 text-xs px-3 py-1.5 hover:bg-red-50"
+            >
+              清除
+            </button>
+          </>
+        )}
+      </div>
+      {hasImage && cfg.enabled && (
+        <>
+          <label className="block text-xs text-slate-500">
+            遮罩浓度 {Math.round(cfg.scrim * 100)}%<span className="text-slate-300">（越大字越清、图越淡）</span>
+            <input
+              type="range" min={60} max={95}
+              value={Math.round(cfg.scrim * 100)}
+              onChange={(e) => update({ scrim: Number(e.target.value) / 100 })}
+              className="mt-1 w-full accent-indigo-600"
+            />
+          </label>
+          <div className="flex gap-2 items-center text-xs text-slate-500">
+            <span>遮罩颜色</span>
+            <button
+              onClick={() => update({ scrimDark: false })}
+              className={`rounded-lg px-2.5 py-1 ${!cfg.scrimDark ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}
+            >
+              白纱布（浅色图）
+            </button>
+            <button
+              onClick={() => update({ scrimDark: true })}
+              className={`rounded-lg px-2.5 py-1 ${cfg.scrimDark ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}
+            >
+              黑纱布（深色图）
+            </button>
+          </div>
+          <label className="block text-xs text-slate-500">
+            图片变暗 {Math.round(cfg.dim * 100)}%<span className="text-slate-300">（图太亮时压一压）</span>
+            <input
+              type="range" min={0} max={60}
+              value={Math.round(cfg.dim * 100)}
+              onChange={(e) => update({ dim: Number(e.target.value) / 100 })}
+              className="mt-1 w-full accent-indigo-600"
+            />
+          </label>
+          <label className="block text-xs text-slate-500">
+            图片灰度 {Math.round(cfg.grey * 100)}%<span className="text-slate-300">（图太花时去色）</span>
+            <input
+              type="range" min={0} max={100}
+              value={Math.round(cfg.grey * 100)}
+              onChange={(e) => update({ grey: Number(e.target.value) / 100 })}
+              className="mt-1 w-full accent-indigo-600"
+            />
+          </label>
+          <label className="block text-xs text-slate-500">
+            毛玻璃 {cfg.blur}px
+            <input
+              type="range" min={0} max={20}
+              value={cfg.blur}
+              onChange={(e) => update({ blur: Number(e.target.value) })}
+              className="mt-1 w-full accent-indigo-600"
+            />
+          </label>
+          <label className="block text-xs text-slate-500">
+            填充模式
+            <select
+              value={cfg.fit}
+              onChange={(e) => update({ fit: e.target.value as BgConfig['fit'] })}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+            >
+              <option value="cover">铺满（cover）</option>
+              <option value="contain">完整显示（contain）</option>
+              <option value="fill">拉伸（fill）</option>
+            </select>
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState('');
@@ -372,6 +523,7 @@ export default function SettingsPage() {
         <p className="text-xs text-slate-400 mt-0.5">本地 SQLite 持久化</p>
       </header>
       <div className="flex-1 overflow-y-auto px-6 py-4 max-w-2xl space-y-3">
+        <PersonalizeSection />
         <PetSection />
         <NetworkSection />
         <LlmSection settings={settings} save={save} />

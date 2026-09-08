@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type NotificationItem } from './api/client';
+import { BackgroundLayer } from './components/BackgroundLayer';
 import TasksPage from './pages/TasksPage';
 import CalendarPage from './pages/CalendarPage';
 import FollowUpsPage from './pages/FollowUpsPage';
@@ -119,7 +120,8 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex bg-slate-100 text-slate-800 overflow-hidden">
+    <div className="app-root h-screen w-screen flex bg-slate-100 text-slate-800 overflow-hidden relative">
+      <BackgroundLayer />
       {/* 左侧导航 */}
       <aside className="w-52 shrink-0 bg-white border-r border-slate-200 flex flex-col">
         <div className="px-5 py-4 border-b border-slate-100">

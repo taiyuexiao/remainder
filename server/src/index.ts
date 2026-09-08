@@ -22,6 +22,7 @@ import kbProjectRoutes from './routes/kbProjects.js';
 import commentRoutes from './routes/comments.js';
 import okfExportRoutes from './routes/exportOkf.js';
 import publicationRoutes from './routes/publications.js';
+import assetRoutes from './routes/assets.js';
 import teamRoutes from './routes/teams.js';
 import systemRoutes from './routes/system.js';
 import chatRoutes from './routes/chat.js';
@@ -110,6 +111,7 @@ await app.register(kbProjectRoutes);
 await app.register(commentRoutes);
 await app.register(okfExportRoutes);
 await app.register(publicationRoutes);
+await app.register(assetRoutes);
 await app.register(teamRoutes);
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1']);
