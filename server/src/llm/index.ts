@@ -11,7 +11,7 @@ interface LlmConfig {
 }
 
 /** 运行时从 settings 表读取 LLM 配置；未配置则回退到 .env/config */
-function getLlmConfig(): LlmConfig {
+export function getLlmConfig(): LlmConfig {
   const get = (key: string) => {
     try {
       return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value?: string } | undefined)

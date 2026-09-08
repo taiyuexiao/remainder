@@ -34,6 +34,7 @@ export default function InboxPage() {
   };
 
   const remove = async (id: string) => {
+    if (!confirm('确认删除这条速记？删除后不可恢复。')) return;
     await api.deleteInbox(id);
     reload();
   };
