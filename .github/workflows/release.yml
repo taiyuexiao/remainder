@@ -112,3 +112,20 @@ jobs:
         with:
           name: remainder-mac-arm64
           path: dist-package/Remainder-portable-mac-arm64.zip
+
+  # tag 触发时自动建 GitHub Release 并挂载两个平台的安装包（配 install.sh 一键安装）
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            */Remainder-portable-*.zip
+          generate_release_notes: true

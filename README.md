@@ -3,6 +3,18 @@
 > 本地优先的个人任务规划与团队协作知识平台：任务提醒 + 飞书级云文档 + 网页剪藏 + 调研画布 + AI 助手 + 桌面宠物 + **多团队知识库（含 coding agent 的 MCP 接入）**。
 > Windows / macOS 桌面应用（Tauri 2），数据全部本地 SQLite，可选局域网团队联机。
 
+## 安装
+
+**macOS（Apple Silicon）一键安装**：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/taiyuexiao/remainder/master/install.sh | sh
+```
+
+装到 `~/Applications/Remainder`，启动：`~/Applications/Remainder/start.sh`。
+
+**Windows / 手动下载**：见 [Releases](https://github.com/taiyuexiao/remainder/releases) 页面的便携包（Windows 解压后双击 `启动Remainder.bat`）。
+
 ---
 
 ## 功能总览
