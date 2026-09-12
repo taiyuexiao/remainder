@@ -62,7 +62,7 @@ export function insertAsQuote(editor: Editor, text: string) {
 export function insertAsCode(editor: Editor, text: string) {
   const node = {
     type: 'codeBlock',
-    attrs: { language: 'plain' },
+    attrs: { language: 'plain text' }, // 与代码块默认语言取值保持一致（原为非法值 'plain'）
     content: [{ type: 'text', text: text.replace(/\n+$/, '') }],
   }
   const top = currentTop(editor)

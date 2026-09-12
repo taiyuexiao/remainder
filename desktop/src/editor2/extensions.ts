@@ -24,6 +24,7 @@ import {
   Formula, InlineFormula, Grid, GridColumn, Mention, MentionSuggestion, DateChip,
 } from './advancedBlocks'
 import { CommentMark } from './commentMark'
+import { DocRef, DOC_REF_RE } from './docRef'
 import { FeFindReplace } from './findReplace'
 import { SlashMenuExtension } from './SlashMenu'
 import { FeBold, FeItalic, FeStrike, FeCode } from './markRules'
@@ -35,6 +36,7 @@ import { markdownToTiptapJSON, looksLikeMarkdown } from './mdPaste'
 import { FontSizeAttr } from './textStyle'
 import { parseTableText, rowsToTableHtml } from './tableDetect'
 import { DOMParser as PmDOMParser, Slice } from '@tiptap/pm/model'
+import { TextSelection } from '@tiptap/pm/state'
 
 /** 飞书支持标题 1~9 级；Tiptap Level 类型只声明到 6，此处扩展 */
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as unknown as Level[]
@@ -102,6 +104,7 @@ export function buildExtensions(): AnyExtension[] {
     GridColumn,
     Mention,
     DateChip,
+    DocRef,
     // ---- 评论 / 查找替换 ----
     CommentMark,
     FeFindReplace,
@@ -115,7 +118,10 @@ export function buildExtensions(): AnyExtension[] {
 }
 
 /** 粘贴/拖拽图片与 Markdown 粘贴转换（挂在 EditorContent 的编辑器上） */
-export function editorPropsForPaste(readFileAsDataURL: (file: File) => Promise<string>) {
+export function editorPropsForPaste(
+  readFileAsDataURL: (file: File) => Promise<string>,
+  resolveDocTitle: (id: string) => Promise<string>,
+) {
   return {
     handlePaste: (view: import('@tiptap/pm/view').EditorView, event: ClipboardEvent) => {
       // 1) 图片文件 → 上传插入
@@ -139,6 +145,29 @@ export function editorPropsForPaste(readFileAsDataURL: (file: File) => Promise<s
       }
       // 2) 表格文本（Tab/多空格/管道分列）→ 自动转表格（M14 tableDetect 回植）
       const text = event.clipboardData?.getData('text/plain') ?? ''
+      // 2.5) 站内文档链接 remainder://doc/<id> → 文档引用卡片（M33）
+      const refMatch = text.trim().match(DOC_REF_RE)
+      if (refMatch) {
+        event.preventDefault()
+        void (async () => {
+          let title = '未命名文档'
+          try {
+            title = (await resolveDocTitle(refMatch[1])) || title
+          } catch {
+            /* 文档不存在也照常插入，点击跳转时再兜底 */
+          }
+          const node = view.state.schema.nodes.docRef.create({ id: refMatch[1], title })
+          // 行内插入（M33b）：不能用 replaceSelectionWith（openStart=0 会把卡片顶成独立块），
+          // 显式 deleteSelection + insert 才能把卡片嵌进当前段落、光标落在卡片后可继续打字
+          const tr = view.state.tr
+          if (!tr.selection.empty) tr.deleteSelection()
+          const insertPos = tr.selection.from
+          tr.insert(insertPos, node)
+          tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + node.nodeSize))).scrollIntoView()
+          view.dispatch(tr)
+        })()
+        return true
+      }
       try {
         const tableRows = text ? parseTableText(text) : null
         if (tableRows) {
@@ -162,6 +191,15 @@ export function editorPropsForPaste(readFileAsDataURL: (file: File) => Promise<s
         return false
       }
       return false
+    },
+    // 点击站内文档引用卡片 → 派发 fe-nav-doc，由 DocsPage 完成跳转（M33）
+    handleClick: (_view: import('@tiptap/pm/view').EditorView, _pos: number, event: MouseEvent) => {
+      const el = (event.target as HTMLElement | null)?.closest?.('span[data-type="doc-ref"]') as HTMLElement | null
+      const id = el?.getAttribute('data-id')
+      if (!id) return false
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent('fe-nav-doc', { detail: { docId: id } }))
+      return true
     },
     handleDrop: (view: import('@tiptap/pm/view').EditorView, event: DragEvent) => {
       const files = Array.from(event.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'))

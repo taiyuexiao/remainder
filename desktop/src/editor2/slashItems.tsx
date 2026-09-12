@@ -12,6 +12,7 @@ import { getVisibleHeadingLevels } from './headingLevels'
 import { insertMockBlock } from './mockBlocks'
 import { insertGridContent, openUserPicker, todayStr } from './advancedBlocks'
 import { slashHelpers } from './slashHelpers'
+import { defaultCodeLang } from './CodeBlockView'
 
 export type SlashGroup = '基础' | '常用' | '按钮' | '团队协作'
 
@@ -113,7 +114,7 @@ function basicItems(editor: Editor): SlashItem[] {
     {
       group: '基础', title: '代码块', desc: '插入一段代码', icon: <I.IconCodeBlock size={16} />,
       keywords: ['code', 'dmk', 'daimakuai', '代码', '/dmk'],
-      command: ({ editor: e, range }) => run(e, range, () => e.chain().focus().toggleCodeBlock().run()),
+      command: ({ editor: e, range }) => run(e, range, () => e.chain().focus().toggleCodeBlock({ language: defaultCodeLang() }).run()),
     },
     {
       group: '基础', title: '引用', desc: '插入引用内容', icon: <I.IconQuote size={16} />,

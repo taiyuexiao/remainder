@@ -1095,11 +1095,16 @@
   margin: 12px 0 4px;
 }
 
-/* 列表 */
+/* 列表（M33b：顶层列表改悬挂缩进——序号/圆点挂进左侧留白，正文几乎不右移，对齐飞书观感） */
 .fe-editor .ProseMirror ul,
 .fe-editor .ProseMirror ol {
-  padding-left: 26px;
+  padding-left: 1.4em;
   margin: 4px 0;
+}
+
+.fe-editor .ProseMirror > ul,
+.fe-editor .ProseMirror > ol {
+  margin-left: -0.9em;
 }
 
 .fe-editor .ProseMirror li {
@@ -3974,4 +3979,25 @@
     padding: 0 !important;
     margin: 0 !important;
   }
+}
+
+/* ---------- 站内文档引用卡片（M33） ---------- */
+
+.fe-doc-ref {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: rgba(51, 112, 255, 0.08);
+  color: #3370ff;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.fe-doc-ref:hover {
+  background: rgba(51, 112, 255, 0.16);
+  text-decoration: underline;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import EditorPage from './EditorPage';
 import { primeDoc } from './store';
+import { takeDocScroll } from '../navBus';
 import './fe.css';
 
 /**
@@ -26,6 +27,18 @@ export default function EditorShell({ docId, onBack }: { docId: string; onBack: 
     window.addEventListener('fe-doc-created', onCreated);
     return () => window.removeEventListener('fe-doc-created', onCreated);
   }, [realId]);
+
+  // M33b：链接跳转返回后恢复滚动位置（EditorPage 已挂载、内容已渲染）
+  useEffect(() => {
+    if (!ready) return;
+    const top = takeDocScroll(realId);
+    if (top > 0) {
+      requestAnimationFrame(() => {
+        const el = document.querySelector('.fe-content');
+        if (el) el.scrollTop = top;
+      });
+    }
+  }, [ready, realId]);
 
   if (!ready) {
     return (

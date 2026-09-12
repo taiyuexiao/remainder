@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DOC_REF_PREFIX } from './docRef'
 
 function Avatar({ name, bg }: { name: string; bg: string }) {
   return (
@@ -11,7 +12,8 @@ function Avatar({ name, bg }: { name: string; bg: string }) {
 export function SharePopover({ docId, onClose }: { docId: string; onClose: () => void }) {
   const [perm, setPerm] = useState('org-read')
   const [copied, setCopied] = useState(false)
-  const link = `https://feishu-clone.local/doc/${docId}`
+  // 站内分享链接：粘贴到任意文档自动解析为可跳转的文档引用卡片（M33）
+  const link = `${DOC_REF_PREFIX}${docId}`
 
   const copy = async () => {
     try {
@@ -44,6 +46,7 @@ export function SharePopover({ docId, onClose }: { docId: string; onClose: () =>
             {copied ? '已复制' : '复制链接'}
           </button>
         </div>
+        <div className="fe-share-label">粘贴到站内文档中，会自动解析为可点击跳转的文档引用</div>
 
         <div className="fe-share-label">协作者</div>
         <div className="fe-share-collab">

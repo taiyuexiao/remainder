@@ -11,6 +11,7 @@ import { Extension } from '@tiptap/core'
 import type { Level } from '@tiptap/extension-heading'
 import { currentTopBlockIndex, moveTopBlock } from './blockOps'
 import { slashHelpers } from './slashHelpers'
+import { defaultCodeLang } from './CodeBlockView'
 
 export const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.userAgent)
 
@@ -47,7 +48,7 @@ export const FeishuShortcuts = Extension.create({
       'Mod-Shift-8': () => this.editor.commands.toggleBulletList(),
       'Mod->': () => this.editor.commands.toggleBlockquote(),
       'Mod-Shift->': () => this.editor.commands.toggleBlockquote(),
-      'Mod-Alt-c': () => this.editor.commands.toggleCodeBlock(),
+      'Mod-Alt-c': () => this.editor.commands.toggleCodeBlock({ language: defaultCodeLang() }),
       'Mod-Alt-t': () => this.editor.commands.toggleTaskList(),
       'Mod-Alt-s': () => this.editor.commands.setHorizontalRule(),
 

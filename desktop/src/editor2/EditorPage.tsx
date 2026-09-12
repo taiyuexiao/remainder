@@ -90,7 +90,7 @@ export default function EditorPage({ docId, onBack }: { docId: string; onBack: (
     extensions: buildExtensions(),
     content: parseStoredContent(docId),
     autofocus: false,
-    editorProps: editorPropsForPaste(readFileAsDataURL),
+    editorProps: editorPropsForPaste(readFileAsDataURL, async (id) => (await api.getDocument(id)).title),
     onUpdate: () => setSaveStatus('saving'),
   }, [docId])
 

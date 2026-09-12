@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { treeDragStore } from '../editor/treeDragStore';
 import EditorShell from '../editor2/EditorShell';
 import { api, type Document, type DocFolder } from '../api/client';
+import { consumePendingDoc, saveDocScroll } from '../navBus';
 
 
 function formatTime(iso: string) {
@@ -37,6 +38,8 @@ export default function DocsPage() {
   const [rootDocs, setRootDocs] = useState<Document[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  // 站内文档引用跳转历史（M33）：点文档卡片跳转时压栈，返回按钮弹栈回上一篇
+  const [docHistory, setDocHistory] = useState<string[]>([]);
   const [creating, setCreating] = useState<{ type: 'folder' | 'doc'; parentId: string | null } | null>(null);
   const [error, setError] = useState('');
   const [organizeOpen, setOrganizeOpen] = useState(false);
@@ -74,22 +77,73 @@ export default function DocsPage() {
     setTreeKey((k) => k + 1);
   }, [loadFolders, loadRootDocs]);
 
+  // 编辑器内点击文档引用卡片（fe-nav-doc）→ 站内跳转并记录历史
+  const selectedDocIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedDocIdRef.current = selectedDocId;
+  }, [selectedDocId]);
+  // 记录当前文档滚动位置（链接跳转/返回前调用）
+  const saveCurrentScroll = () => {
+    const cur = selectedDocIdRef.current;
+    if (cur) saveDocScroll(cur, document.querySelector('.fe-content')?.scrollTop ?? 0);
+  };
+
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const id = (e as CustomEvent<{ docId: string }>).detail.docId;
+      if (!id || id === selectedDocIdRef.current) return;
+      consumePendingDoc(); // fe-nav-doc 已处理，清掉挂载时待消费的 pending
+      saveCurrentScroll();
+      const cur = selectedDocIdRef.current;
+      if (cur) setDocHistory((h) => [...h, cur]);
+      setSelectedDocId(id);
+      setSelectedFolderId(null);
+      setCreating(null);
+    };
+    window.addEventListener('fe-nav-doc', onNav);
+    return () => window.removeEventListener('fe-nav-doc', onNav);
+  }, []);
+
+  // agent client_actions 跳转时本页可能尚未挂载：挂载后消费 pending 文档（M34 / A3）
+  useEffect(() => {
+    const pending = consumePendingDoc();
+    if (pending) {
+      setSelectedDocId(pending);
+      setSelectedFolderId(null);
+    }
+  }, []);
+
+  // 返回：有跳转历史回上一篇文档，否则回文档列表
+  const goBack = () => {
+    saveCurrentScroll();
+    if (docHistory.length) {
+      setSelectedDocId(docHistory[docHistory.length - 1]);
+      setDocHistory((h) => h.slice(0, -1));
+    } else {
+      setSelectedDocId(null);
+    }
+    refresh();
+  };
+
   const selectFolder = (id: string) => {
     setSelectedFolderId(id);
     setSelectedDocId(null);
     setCreating(null);
+    setDocHistory([]);
   };
 
   const selectDoc = (id: string) => {
     setSelectedDocId(id);
     setSelectedFolderId(null);
     setCreating(null);
+    setDocHistory([]);
   };
 
   const selectRoot = () => {
     setSelectedFolderId(null);
     setSelectedDocId(null);
     setCreating(null);
+    setDocHistory([]);
   };
 
   const startCreate = (type: 'folder' | 'doc', parentId: string | null = selectedFolderId) => {
@@ -171,11 +225,9 @@ export default function DocsPage() {
       <main className="flex-1 min-w-0 bg-white flex flex-col">
         {selectedDocId ? (
           <EditorShell
+            key={selectedDocId}
             docId={selectedDocId}
-            onBack={() => {
-              setSelectedDocId(null);
-              refresh();
-            }}
+            onBack={goBack}
           />
         ) : selectedFolderId ? (
           <FolderDetails

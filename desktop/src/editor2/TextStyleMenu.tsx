@@ -10,6 +10,7 @@ import type { Editor } from '@tiptap/core'
 import { getVisibleHeadingLevels, getNestedHeadingLevels } from './headingLevels'
 import * as I from './icons'
 import { insertMockBlock } from './mockBlocks'
+import { defaultCodeLang } from './CodeBlockView'
 
 const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九']
 
@@ -55,7 +56,7 @@ export function TextStyleMenu({ editor, prepare, onPick, withLayout }: {
     { key: 'ol', icon: <I.IconOrderedList size={15} />, label: '有序列表', active: editor.isActive('orderedList'), onClick: () => run(() => editor.chain().focus().toggleOrderedList().run()) },
     { key: 'ul', icon: <I.IconBulletList size={15} />, label: '无序列表', active: editor.isActive('bulletList'), onClick: () => run(() => editor.chain().focus().toggleBulletList().run()) },
     { key: 'task', icon: <I.IconTodoList size={15} />, label: '任务', active: editor.isActive('taskList'), onClick: () => run(() => editor.chain().focus().toggleTaskList().run()) },
-    { key: 'code', icon: <I.IconCodeBlock size={15} />, label: '代码块', active: editor.isActive('codeBlock'), onClick: () => run(() => editor.chain().focus().toggleCodeBlock().run()) },
+    { key: 'code', icon: <I.IconCodeBlock size={15} />, label: '代码块', active: editor.isActive('codeBlock'), onClick: () => run(() => editor.chain().focus().toggleCodeBlock({ language: defaultCodeLang() }).run()) },
     { key: 'quote', icon: <I.IconQuote size={15} />, label: '引用', active: editor.isActive('blockquote'), onClick: () => run(() => editor.chain().focus().toggleBlockquote().run()) },
     { key: 'callout', icon: <I.IconCallout size={15} />, label: '高亮块', active: editor.isActive('callout'), onClick: () => run(() => editor.chain().focus().toggleCallout().run()) },
     { key: 'sync', icon: <I.IconSync size={15} />, label: '同步块', active: false, onClick: () => run(() => insertMockBlock(editor, 'sync')) },

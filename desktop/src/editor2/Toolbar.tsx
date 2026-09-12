@@ -9,6 +9,7 @@ import { loadAIConfig, hasAIConfig } from './ai/config'
 import { slashHelpers } from './slashHelpers'
 import { FONT_FAMILIES, FONT_SIZES } from './textStyle'
 import { TypoCheck } from './TypoCheck'
+import { defaultCodeLang } from './CodeBlockView'
 import * as I from './icons'
 
 const CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九']
@@ -187,7 +188,7 @@ export function Toolbar({ editor, onAutoFormat }: { editor: Editor; onAutoFormat
 
       <span className="fe-vsep" />
 
-      <ToolbarBtn icon={<I.IconCodeBlock size={15} />} tip={`代码块 ${keyHint('⌘⌥C', 'Ctrl+Alt+C')}`} on={editor.isActive('codeBlock')} onClick={() => c().toggleCodeBlock().run()} />
+      <ToolbarBtn icon={<I.IconCodeBlock size={15} />} tip={`代码块 ${keyHint('⌘⌥C', 'Ctrl+Alt+C')}`} on={editor.isActive('codeBlock')} onClick={() => c().toggleCodeBlock({ language: defaultCodeLang() }).run()} />
       <ToolbarBtn icon={<I.IconDivider size={15} />} tip={`分割线 ${keyHint('⌘⌥S', 'Ctrl+Alt+S')}`} onClick={() => c().setHorizontalRule().run()} />
       <ToolbarBtn icon={<I.IconCallout size={15} />} tip="高亮块" on={editor.isActive('callout')} onClick={() => c().insertContent({ type: 'callout', attrs: { emoji: '💡', color: 'blue' }, content: [{ type: 'paragraph' }] }).run()} />
       <ToolbarBtn icon={<I.IconImage size={15} />} tip="插入图片" onClick={() => pickAndInsertImage(editor)} />

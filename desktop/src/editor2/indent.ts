@@ -87,6 +87,18 @@ export const FeIndent = Extension.create({
         return editor.commands.increaseIndent()
       },
       'Shift-Tab': ({ editor }) => editor.commands.decreaseIndent(),
+      // 空列表项（回车生成的空 "2." 项）按 Backspace → lift 出列表回顶格段落。
+      // 默认 joinBackward 会把空项并成上一项内的第二个段落，卡在列表里出不来（M33）
+      Backspace: ({ editor }) => {
+        const { $from, empty } = editor.state.selection
+        if (!empty || $from.parentOffset !== 0 || $from.parent.content.size !== 0) return false
+        const d = $from.depth - 1
+        if (d <= 0) return false
+        const name = $from.node(d).type.name
+        if (name !== 'listItem' && name !== 'taskItem') return false
+        if ($from.index(d) !== 0) return false // 项内非首个段落：走默认合并
+        return editor.commands.liftListItem(name)
+      },
     }
   },
 })
