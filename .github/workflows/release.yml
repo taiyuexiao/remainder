@@ -49,6 +49,7 @@ jobs:
           Copy-Item server/package.json, server/.env.example "$root/server/"
           Copy-Item -Recurse packaging/live2d-models/* "$root/server/data/live2d-models/"
           Copy-Item packaging/* "$root/" -Exclude live2d-models
+          Copy-Item scripts/data-sync.mjs "$root/"
 
       - name: Zip package
         shell: pwsh
@@ -101,6 +102,7 @@ jobs:
           cp server/package.json server/.env.example "$root/server/"
           cp -R packaging/live2d-models/. "$root/server/data/live2d-models/"
           cp packaging/start.sh packaging/README.txt "$root/"
+          cp scripts/data-sync.mjs "$root/"
           chmod +x "$root/start.sh"
 
       - name: Zip package

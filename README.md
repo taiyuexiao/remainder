@@ -15,6 +15,21 @@ curl -fsSL https://raw.githubusercontent.com/taiyuexiao/remainder/master/install
 
 **Windows / 手动下载**：见 [Releases](https://github.com/taiyuexiao/remainder/releases) 页面的便携包（Windows 解压后双击 `启动Remainder.bat`）。
 
+**跨设备数据同步（可选）**：数据默认只存在本机 `server/data/`。要多设备同步，可以自建一个**私有** git 仓库作为数据载体（数据不进本公开仓库）：
+
+```bash
+# 本机（首次）：初始化并绑定你的私有仓库
+git -C server/data init -b main
+git -C server/data remote add origin <你的私有仓库地址>
+node scripts/data-sync.mjs push        # 以后每次推送
+
+# 另一台设备（便携包内也附带了 data-sync.mjs）：
+./node/node data-sync.mjs pull <你的私有仓库地址>   # 仅首次需要地址
+./node/node data-sync.mjs pull                      # 以后直接拉取
+```
+
+注意：同步是 last-write-wins，两台设备不要同时在线编辑；pull 前请先退出应用。
+
 ---
 
 ## 功能总览
