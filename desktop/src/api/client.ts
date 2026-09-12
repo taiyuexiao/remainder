@@ -452,11 +452,18 @@ export const api = {
   getConversation: (id: string) => req<ConversationDetail>(`/api/conversations/${id}`),
   deleteConversation: (id: string) =>
     req<{ deleted: string }>(`/api/conversations/${id}`, { method: 'DELETE' }),
-  sendChatMessage: (convId: string, content: string) =>
-    req<{ id: string; content: string; applied: string[] }>(`/api/conversations/${convId}/messages`, {
+  sendChatMessage: (convId: string, content: string, opts?: { planMode?: boolean; executePlan?: string; planMsgId?: string }) =>
+    req<{ id: string; content: string; applied: AgentActionItem[]; clientActions?: ClientAction[] }>(`/api/conversations/${convId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, ...opts }),
     }),
+  undoAgentAction: (id: string) =>
+    req<{ undone: string }>(`/api/agent-actions/${id}/undo`, { method: 'POST' }),
+  cancelPlan: (convId: string, msgId: string) =>
+    req<{ cancelled: string }>(`/api/conversations/${convId}/messages/${msgId}/cancel-plan`, { method: 'POST' }),
+  // A4 轨迹回放
+  getAgentRun: (messageId: string) =>
+    req<AgentRun>(`/api/agent-runs/by-message/${messageId}`),
   // 导入本地文件为文档（md/txt/docx/pdf）
   importDocument: async (file: File): Promise<Document> => {
     const fd = new FormData();
@@ -476,11 +483,41 @@ export interface Conversation {
   last_message?: string | null;
 }
 
+/** agent 动作卡片项（A2；老消息是 string 兼容；A3 起带 clientAction，A4 plan 卡片 tool='plan'） */
+export type AgentActionItem =
+  | string
+  | {
+      id: string;
+      tool: string;
+      text: string;
+      undoable: boolean;
+      planStatus?: 'pending' | 'executed' | 'cancelled';
+      clientAction?: ClientAction;
+    };
+
+/** 前端联动动作（A3 client_actions） */
+export interface ClientAction {
+  type: 'open_doc' | 'nav';
+  docId?: string;
+  title?: string;
+  page?: string;
+}
+
+/** A4 轨迹回放：轮次级轨迹 */
+export interface AgentRun {
+  id: string;
+  user_msg: string;
+  plan_mode: number;
+  rounds: { thought: string | null; calls: { tool: string; params: Record<string, unknown>; result: string }[] }[];
+  reply: string;
+  created_at: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  actions: string[];
+  actions: AgentActionItem[];
   created_at: string;
 }
 

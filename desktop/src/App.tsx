@@ -39,6 +39,16 @@ export default function App() {
   // 后端就绪门：0=检查中 1=就绪 2=超时（避免后端启动慢时各页直接报"后端连接失败"）
   const [backendState, setBackendState] = useState<0 | 1 | 2>(0);
 
+  // agent client_actions（M34 / A3）：跨页面切换栏目
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const page = (e as CustomEvent<{ page: string }>).detail.page;
+      if (NAV.some((n) => n.key === page)) setNav(page as NavKey);
+    };
+    window.addEventListener('app-nav', onNav);
+    return () => window.removeEventListener('app-nav', onNav);
+  }, []);
+
   useEffect(() => {
     if (backendState === 1) return;
     let timer: number;

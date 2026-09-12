@@ -193,6 +193,50 @@ function buildMonthlyContent(data: ReturnType<typeof getMonthlyTasks>): string {
   return lines.join('\n');
 }
 
+/** 创建报告（同一类型同一日期已存在则返回已有）。reports 路由与 agent 工具共用（M34 / A3） */
+export async function createReport(type: 'daily' | 'weekly' | 'monthly', date: string) {
+  const existing = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE type = ? AND date = ?`).get(type, date) as
+    | Record<string, unknown>
+    | undefined;
+  if (existing) return { row: existing, created: false };
+
+  let md: string;
+  let title: string;
+  if (type === 'daily') {
+    md = buildDailyContent(getDailyTasks());
+    title = `日报 ${date}`;
+  } else if (type === 'weekly') {
+    const data = getWeeklyTasks();
+    md = buildWeeklyContent(data);
+    title = `周报 ${date}`;
+    try {
+      const llmResult = await generateWeeklyReport({
+        weekStart: data.date.split(' ~ ')[0],
+        weekEnd: data.date.split(' ~ ')[1],
+        doneProjects: data.doneProjects.map((p: any) => ({ name: p.name, type: p.type })),
+        doneTasks: data.doneTasks.map((t: any) => ({ title: t.title, project_name: t.project_name })),
+        doingProjects: data.doingProjects.map((p: any) => ({ name: p.name, type: p.type, done_count: p.done_count, total_count: p.total_count })),
+        doingTasks: [],
+        overdueTasks: data.overdueTasks.map((t: any) => ({ title: t.title, project_name: t.project_name, ddl: t.ddl })),
+        followUps: [],
+      });
+      if (llmResult) md = llmResult;
+    } catch {
+      // fallback already set
+    }
+  } else {
+    md = buildMonthlyContent(getMonthlyTasks());
+    title = `月报 ${date}`;
+  }
+
+  const id = uuid();
+  const ts = now();
+  db.prepare(
+    `INSERT INTO reports (id,type,date,title,content,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+  ).run(id, type, date, title, mdToTiptapJson(md), ts, ts);
+  return { row: db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id) as Record<string, unknown>, created: true };
+}
+
 export default async function reportRoutes(app: FastifyInstance) {
   // 任务概览
   app.get('/api/reports/tasks/:range', async (req, reply) => {
@@ -233,48 +277,8 @@ export default async function reportRoutes(app: FastifyInstance) {
   app.post('/api/reports', async (req, reply) => {
     const b = (req.body ?? {}) as ReportBody;
     if (!b.type || !b.date) return reply.code(400).send({ error: 'type 和 date 必填' });
-
-    const existing = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE type = ? AND date = ?`).get(b.type, b.date);
-    if (existing) return existing;
-
-    let md: string;
-    let title: string;
-    if (b.type === 'daily') {
-      const data = getDailyTasks();
-      md = buildDailyContent(data);
-      title = `日报 ${b.date}`;
-    } else if (b.type === 'weekly') {
-      const data = getWeeklyTasks();
-      md = buildWeeklyContent(data);
-      title = `周报 ${b.date}`;
-      try {
-        const llmResult = await generateWeeklyReport({
-          weekStart: data.date.split(' ~ ')[0],
-          weekEnd: data.date.split(' ~ ')[1],
-          doneProjects: data.doneProjects.map((p: any) => ({ name: p.name, type: p.type })),
-          doneTasks: data.doneTasks.map((t: any) => ({ title: t.title, project_name: t.project_name })),
-          doingProjects: data.doingProjects.map((p: any) => ({ name: p.name, type: p.type, done_count: p.done_count, total_count: p.total_count })),
-          doingTasks: [],
-          overdueTasks: data.overdueTasks.map((t: any) => ({ title: t.title, project_name: t.project_name, ddl: t.ddl })),
-          followUps: [],
-        });
-        if (llmResult) md = llmResult;
-      } catch {
-        // fallback already set
-      }
-    } else {
-      const data = getMonthlyTasks();
-      md = buildMonthlyContent(data);
-      title = `月报 ${b.date}`;
-    }
-
-    const id = uuid();
-    const ts = now();
-    const content = b.content ?? mdToTiptapJson(md);
-    db.prepare(
-      `INSERT INTO reports (id,type,date,title,content,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
-    ).run(id, b.type, b.date, b.title ?? title, content, ts, ts);
-    return reply.code(201).send(db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id));
+    const { row, created } = await createReport(b.type, b.date);
+    return reply.code(created ? 201 : 200).send(row);
   });
 
   // 更新报告

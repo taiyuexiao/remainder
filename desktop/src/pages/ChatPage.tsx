@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type Conversation, type ChatMessage } from '../api/client';
+import { api, type Conversation, type ChatMessage, type AgentActionItem, type AgentRun } from '../api/client';
+import { requestOpenDoc, requestNav } from '../navBus';
 
 /**
  * AI 助手页（M19）：GPT/豆包式布局 —— 左侧会话历史 + 主对话区
- * 支持自然语言建任务（"明天下午交周报""提醒我下周催张三审批"），LLM 抽取动作直接落库
+ * M31 agent loop 动作卡片；M32 撤销；M34 计划模式（A4）+ 轨迹回放（A4）+ 前端联动（A3）
  */
+
+/** 执行 agent 返回的前端联动动作（A3 client_actions） */
+function runClientActions(list?: { type: string; docId?: string; page?: string }[]) {
+  for (const ca of list ?? []) {
+    if (ca.type === 'open_doc' && ca.docId) requestOpenDoc(ca.docId);
+    else if (ca.type === 'nav' && ca.page) requestNav(ca.page);
+  }
+}
 export default function ChatPage() {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -12,6 +21,9 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [undoneIds, setUndoneIds] = useState<Set<string>>(new Set());
+  const [planMode, setPlanMode] = useState(false);
+  const [trace, setTrace] = useState<{ loading: boolean; run?: AgentRun; error?: string } | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
   const loadConvs = useCallback(async () => {
@@ -59,8 +71,9 @@ export default function ChatPage() {
     await loadConvs();
   };
 
-  const send = async () => {
-    const text = input.trim();
+  /** 发送；override 用于「执行计划」（A4）：content=原始需求，executePlan=已确认计划文本 */
+  const send = async (override?: { content: string; executePlan?: string; planMsgId?: string }) => {
+    const text = (override?.content ?? input).trim();
     if (!text || sending) return;
     let convId = currentId;
     if (!convId) {
@@ -69,22 +82,37 @@ export default function ChatPage() {
       setCurrentId(convId);
       loadConvs();
     }
-    setInput('');
+    if (!override) setInput('');
     setSending(true);
     const optimistic: ChatMessage = {
       id: `tmp-${Date.now()}`,
       role: 'user',
-      content: text,
+      content: override?.executePlan ? `✅ 执行计划：${text}` : text,
       actions: [],
       created_at: new Date().toISOString(),
     };
     setMessages((m) => [...m, optimistic]);
     try {
-      const res = await api.sendChatMessage(convId, text);
+      const res = await api.sendChatMessage(convId, text, {
+        planMode: override ? false : planMode,
+        executePlan: override?.executePlan,
+        planMsgId: override?.planMsgId,
+      });
       setMessages((m) => [
         ...m,
         { id: res.id, role: 'assistant', content: res.content, actions: res.applied, created_at: new Date().toISOString() },
       ]);
+      // 计划被执行：本地同步计划卡片状态
+      if (override?.planMsgId) {
+        setMessages((ms) =>
+          ms.map((msg) =>
+            msg.id === override.planMsgId
+              ? { ...msg, actions: msg.actions.map((a) => (typeof a !== 'string' && a.tool === 'plan' ? { ...a, planStatus: 'executed' as const } : a)) }
+              : msg,
+          ),
+        );
+      }
+      runClientActions(res.clientActions); // A3：agent 驱动页面跳转
       loadConvs(); // 标题/预览更新
     } catch (e) {
       setMessages((m) => [
@@ -100,6 +128,43 @@ export default function ChatPage() {
     } finally {
       setSending(false);
     }
+  };
+
+  /** 取消待执行计划（A4） */
+  const cancelPlan = async (msgId: string) => {
+    if (!currentId) return;
+    try {
+      await api.cancelPlan(currentId, msgId);
+      setMessages((ms) =>
+        ms.map((msg) =>
+          msg.id === msgId
+            ? { ...msg, actions: msg.actions.map((a) => (typeof a !== 'string' && a.tool === 'plan' ? { ...a, planStatus: 'cancelled' as const } : a)) }
+            : msg,
+        ),
+      );
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  /** 打开轨迹回放（A4） */
+  const openTrace = async (msgId: string) => {
+    setTrace({ loading: true });
+    try {
+      const run = await api.getAgentRun(msgId);
+      setTrace({ loading: false, run });
+    } catch (e) {
+      setTrace({ loading: false, error: (e as Error).message });
+    }
+  };
+
+  /** 找某条助手消息之前最近的用户消息（执行计划时的原始需求） */
+  const lastUserMsgBefore = (msgId: string): string => {
+    const idx = messages.findIndex((m) => m.id === msgId);
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].content;
+    }
+    return '';
   };
 
   const fmtTime = (s: string) => s.slice(5, 16).replace('T', ' ');
@@ -184,21 +249,85 @@ export default function ChatPage() {
                     >
                       {m.content}
                     </div>
-                    {/* 已执行动作卡片 */}
+                    {/* 已执行动作卡片（A2 可撤销；A4 plan 卡片） */}
                     {m.actions.length > 0 && (
                       <div className="mt-1.5 space-y-1">
-                        {m.actions.map((a, i) => (
-                          <div
-                            key={i}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-2.5 py-1 mr-1.5"
-                          >
-                            ✓ {a}
-                          </div>
-                        ))}
+                        {m.actions.map((a: AgentActionItem, i) => {
+                          // A4 计划卡片：待确认的计划，[执行] [取消]
+                          if (typeof a !== 'string' && a.tool === 'plan') {
+                            return (
+                              <div key={i} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
+                                <div className="text-xs text-indigo-700 whitespace-pre-wrap leading-relaxed">{a.text}</div>
+                                <div className="mt-2 flex items-center gap-2">
+                                  {a.planStatus === 'pending' && (
+                                    <>
+                                      <button
+                                        disabled={sending}
+                                        onClick={() => send({ content: lastUserMsgBefore(m.id), executePlan: a.text, planMsgId: m.id })}
+                                        className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1 hover:bg-indigo-700 disabled:opacity-40"
+                                      >
+                                        ▶ 执行计划
+                                      </button>
+                                      <button
+                                        onClick={() => cancelPlan(m.id)}
+                                        className="rounded-lg border border-slate-300 text-slate-500 text-xs px-3 py-1 hover:bg-slate-100"
+                                      >
+                                        取消
+                                      </button>
+                                    </>
+                                  )}
+                                  {a.planStatus === 'executed' && <span className="text-xs text-emerald-600">✓ 已执行</span>}
+                                  {a.planStatus === 'cancelled' && <span className="text-xs text-slate-400">已取消</span>}
+                                </div>
+                              </div>
+                            );
+                          }
+                          const text = typeof a === 'string' ? a : a.text;
+                          const undoable = typeof a !== 'string' && a.undoable && !undoneIds.has(a.id);
+                          const isUndone = typeof a !== 'string' && undoneIds.has(a.id);
+                          return (
+                            <div
+                              key={i}
+                              className={`inline-flex items-center gap-1.5 rounded-lg border text-xs px-2.5 py-1 mr-1.5 ${
+                                isUndone
+                                  ? 'bg-slate-50 border-slate-200 text-slate-400 line-through'
+                                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                              }`}
+                            >
+                              ✓ {text}
+                              {undoable && (
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm('撤销这一步操作？')) return;
+                                    try {
+                                      await api.undoAgentAction((a as { id: string }).id);
+                                      setUndoneIds((prev) => new Set(prev).add((a as { id: string }).id));
+                                    } catch (e) {
+                                      alert((e as Error).message);
+                                    }
+                                  }}
+                                  className="text-emerald-500 hover:text-red-500 font-medium"
+                                  title="撤销"
+                                >
+                                  ↩
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     <p className={`text-[10px] text-slate-300 mt-1 ${m.role === 'user' ? 'text-right' : ''}`}>
                       {fmtTime(m.created_at)}
+                      {/* A4 轨迹回放入口 */}
+                      {m.role === 'assistant' && !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && (
+                        <button
+                          onClick={() => openTrace(m.id)}
+                          className="ml-2 text-slate-300 hover:text-indigo-400 underline underline-offset-2"
+                        >
+                          轨迹
+                        </button>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -232,11 +361,25 @@ export default function ChatPage() {
                 }}
               />
               <button
-                onClick={send}
+                onClick={() => send()}
                 disabled={!input.trim() || sending}
                 className="rounded-xl bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-700 disabled:opacity-40 transition-colors shrink-0"
               >
                 发送
+              </button>
+            </div>
+            {/* A4 计划模式开关：先出执行计划，确认后再动手 */}
+            <div className="flex items-center justify-center gap-1.5 mt-1.5">
+              <button
+                onClick={() => setPlanMode((v) => !v)}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  planMode
+                    ? 'bg-indigo-100 border-indigo-300 text-indigo-600'
+                    : 'border-slate-200 text-slate-300 hover:text-slate-400'
+                }`}
+                title="开启后：AI 先给出执行计划，你确认后才真正执行"
+              >
+                {planMode ? '📋 计划模式：开' : '📋 计划模式'}
               </button>
             </div>
             <p className="text-[10px] text-slate-300 mt-1.5 text-center">
@@ -245,6 +388,41 @@ export default function ChatPage() {
           </div>
         </div>
       </main>
+      {/* A4 轨迹回放模态 */}
+      {trace && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center"
+          onMouseDown={(e) => e.target === e.currentTarget && setTrace(null)}
+        >
+          <div className="bg-white rounded-xl shadow-xl w-[560px] max-w-[90vw] max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <span className="text-sm font-medium text-slate-700">执行轨迹</span>
+              <button onClick={() => setTrace(null)} className="text-slate-300 hover:text-slate-500">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              {trace.loading && <p className="text-xs text-slate-400">加载中…</p>}
+              {trace.error && <p className="text-xs text-slate-400">{trace.error}</p>}
+              {trace.run && trace.run.rounds.length === 0 && (
+                <p className="text-xs text-slate-400">本轮没有调用工具</p>
+              )}
+              {trace.run?.rounds.map((r, i) => (
+                <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] text-slate-400 mb-1">第 {i + 1} 轮</div>
+                  {r.thought && <p className="text-xs text-slate-600 mb-1.5">💭 {r.thought}</p>}
+                  {r.calls.map((c, j) => (
+                    <div key={j} className="text-xs mb-1">
+                      <span className="font-mono text-indigo-600">🔧 {c.tool}</span>
+                      <span className="text-slate-400">({JSON.stringify(c.params).slice(0, 80)})</span>
+                      <div className="text-slate-500 mt-0.5 whitespace-pre-wrap">→ {c.result.slice(0, 200)}</div>
+                    </div>
+                  ))}
+                  {!r.calls.length && !r.thought && <p className="text-xs text-slate-400">（空轮次）</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

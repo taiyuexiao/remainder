@@ -106,6 +106,11 @@ export function migrate() {
 
   // v15: 发布/同步（M27 / K4）
   if ((db.pragma('user_version', { simple: true }) as number) < 15) migrateToV15();
+
+  // v16: agent 动作快照（M32 / A2 撤销系统）
+  if ((db.pragma('user_version', { simple: true }) as number) < 16) migrateToV16();
+  // v17: agent 运行轨迹（M34 / A4 轨迹回放）
+  if ((db.pragma('user_version', { simple: true }) as number) < 17) migrateToV17();
 }
 
 /**
@@ -499,4 +504,43 @@ function migrateToV15() {
   addCol('upstream_team', `upstream_team TEXT DEFAULT ''`);
   addCol('upstream_updated_at', 'upstream_updated_at TEXT');
   db.pragma('user_version = 15');
+}
+
+/** v16 迁移（M32 / A2）：agent 动作快照表——写操作执行前抓 before，支持一键撤销 */
+function migrateToV16() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id TEXT PRIMARY KEY,
+      conv_id TEXT,
+      tool TEXT NOT NULL,
+      params TEXT DEFAULT '{}',
+      undo_table TEXT,          -- 目标表（tasks/projects/documents/doc_folders/inbox）
+      undo_id TEXT,             -- 目标行 id
+      before_json TEXT,         -- 执行前行快照（create 类为 NULL=撤销即删除）
+      result TEXT DEFAULT '',
+      undone INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_actions_conv ON agent_actions(conv_id, created_at);
+  `);
+  db.pragma('user_version = 16');
+}
+
+/** v17 迁移（M34 / A4）：agent 轮次级轨迹表——每轮 thought/工具调用/结果落库，供轨迹回放 */
+function migrateToV17() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      conv_id TEXT,
+      message_id TEXT,        -- 对应的助手消息 id
+      user_msg TEXT DEFAULT '',
+      plan_mode INTEGER DEFAULT 0,
+      rounds TEXT DEFAULT '[]', -- [{thought, calls:[{tool, params, result}]}]
+      reply TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_conv ON agent_runs(conv_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_msg ON agent_runs(message_id);
+  `);
+  db.pragma('user_version = 17');
 }

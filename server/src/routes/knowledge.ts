@@ -39,6 +39,9 @@ const DEFAULT_TTL_DAYS: Record<string, number | null> = {
   intel: 14, share: null, note: 180, rfc: 14, guide: 90, spec: null, adr: null,
 };
 
+/** 类型集合（agent 工具复用，M34 / A3） */
+export const KB_TYPES = TYPES;
+
 function computeExpiresAt(type: string, ttl?: string): string | null {
   if (ttl === 'never' || ttl === '') return null;
   if (ttl && /^\d{4}-\d{2}-\d{2}/.test(ttl)) return ttl;
@@ -46,6 +49,9 @@ function computeExpiresAt(type: string, ttl?: string): string | null {
   if (!days) return null;
   return new Date(Date.now() + days * 86400000).toISOString();
 }
+
+/** agent 工具复用（M34 / A3）：按类型算过期时间 */
+export { computeExpiresAt };
 
 export default async function knowledgeRoutes(app: FastifyInstance) {
   // ── M28：agent 增强查询 ──
