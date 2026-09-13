@@ -1,6 +1,6 @@
 [package]
 name = "remainder"
-version = "0.1.0"
+version = "0.2.2"
 description = "个人任务规划与提醒助手"
 edition = "2021"
 
@@ -21,3 +21,6 @@ windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"

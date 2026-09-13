@@ -98,6 +98,31 @@ mod desktop_layer {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod desktop_layer {
+    use objc::{msg_send, sel, sel_impl};
+
+    /// macOS：把窗口压到桌面层 —— 桌面壁纸与 Finder 桌面图标之上、所有应用窗口之下，
+    /// 效果对齐 Windows 的 stick_to_desktop。同时加入所有 Space 且
+    /// 在调度中心（Mission Control）里保持不动、不参与 Cmd+Tab 窗口循环。
+    pub fn stick_to_desktop(window: &tauri::WebviewWindow) {
+        use objc::runtime::Object;
+        // CGWindowLevelForKey(kCGDesktopWindowLevelKey) = INT32_MIN + 20；+2 压过桌面图标层
+        const K_CG_DESKTOP_WINDOW_LEVEL: i64 = i32::MIN as i64 + 20;
+        const NS_WINDOW_CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
+        const NS_WINDOW_STATIONARY: u64 = 1 << 4;
+        const NS_WINDOW_IGNORES_CYCLE: u64 = 1 << 6;
+        if let Ok(ns_window) = window.ns_window() {
+            unsafe {
+                let ns_window = ns_window as *mut Object;
+                let _: () = msg_send![ns_window, setLevel: K_CG_DESKTOP_WINDOW_LEVEL + 2];
+                let _: () = msg_send![ns_window, setCollectionBehavior:
+                    NS_WINDOW_CAN_JOIN_ALL_SPACES | NS_WINDOW_STATIONARY | NS_WINDOW_IGNORES_CYCLE];
+            }
+        }
+    }
+}
+
 /// 读取剪贴板富文本（Windows CF_HTML → HTML 字符串）。
 /// 微信/浏览器复制的图文都带 HTML 格式；纯文本剪贴板返回 None。
 /// CF_HTML 可能带 <!--StartFragment--> 标记，只截取 fragment 部分（取不到标记就给全文）。
@@ -193,33 +218,61 @@ fn main() {
                     }
                 }
             }
-            #[cfg(not(target_os = "windows"))]
-    {
-        use tauri::Manager;
-        // 非 Windows：无 Win32 桌面层可嵌，降级为置顶悬浮窗（Mac/Linux 可用形态）
-        if let Some(widget) = app.get_webview_window("widget") {
-            let _ = widget.set_always_on_top(true);
-            if let Ok(Some(monitor)) = widget.current_monitor() {
-                let scale = monitor.scale_factor();
-                let logical_w = monitor.size().width as f64 / scale;
-                let x = (logical_w - 300.0 - 40.0).max(0.0);
-                let _ = widget.set_position(tauri::Position::Logical(
-                    tauri::LogicalPosition::new(x, 100.0),
-                ));
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                // macOS：嵌入桌面层（NSWindow level），不再置顶悬浮
+                if let Some(widget) = app.get_webview_window("widget") {
+                    desktop_layer::stick_to_desktop(&widget);
+                    // 组件位置按主屏尺寸动态计算：右边缘内侧 40px，避免小屏/缩放下飞出屏幕
+                    if let Ok(Some(monitor)) = widget.current_monitor() {
+                        let scale = monitor.scale_factor();
+                        let logical_w = monitor.size().width as f64 / scale;
+                        let x = (logical_w - 300.0 - 40.0).max(0.0);
+                        let _ = widget.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(x, 100.0),
+                        ));
+                    }
+                }
+                // 桌宠：定位到屏幕右下角（程序坞上方），保持置顶悬浮
+                if let Some(pet) = app.get_webview_window("pet") {
+                    if let Ok(Some(monitor)) = pet.current_monitor() {
+                        let scale = monitor.scale_factor();
+                        let lw = monitor.size().width as f64 / scale;
+                        let lh = monitor.size().height as f64 / scale;
+                        let _ = pet.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(lw - 140.0 - 30.0, lh - 200.0 - 60.0),
+                        ));
+                    }
+                }
             }
-        }
-        if let Some(pet) = app.get_webview_window("pet") {
-            if let Ok(Some(monitor)) = pet.current_monitor() {
-                let scale = monitor.scale_factor();
-                let lw = monitor.size().width as f64 / scale;
-                let lh = monitor.size().height as f64 / scale;
-                let _ = pet.set_position(tauri::Position::Logical(
-                    tauri::LogicalPosition::new(lw - 140.0 - 30.0, lh - 200.0 - 60.0),
-                ));
+            #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+            {
+                use tauri::Manager;
+                // Linux 等：无可用桌面层 API，降级为置顶悬浮窗
+                if let Some(widget) = app.get_webview_window("widget") {
+                    let _ = widget.set_always_on_top(true);
+                    if let Ok(Some(monitor)) = widget.current_monitor() {
+                        let scale = monitor.scale_factor();
+                        let logical_w = monitor.size().width as f64 / scale;
+                        let x = (logical_w - 300.0 - 40.0).max(0.0);
+                        let _ = widget.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(x, 100.0),
+                        ));
+                    }
+                }
+                if let Some(pet) = app.get_webview_window("pet") {
+                    if let Ok(Some(monitor)) = pet.current_monitor() {
+                        let scale = monitor.scale_factor();
+                        let lw = monitor.size().width as f64 / scale;
+                        let lh = monitor.size().height as f64 / scale;
+                        let _ = pet.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(lw - 140.0 - 30.0, lh - 200.0 - 60.0),
+                        ));
+                    }
+                }
             }
-        }
-    }
-    Ok(())
+            Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
