@@ -208,7 +208,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="px-5 py-3 text-[10px] text-slate-300">v0.2.5 · 本地数据</div>
+        <div className="px-5 py-3 text-[10px] text-slate-300">v0.2.6 · 本地数据</div>
       </aside>
 
       {/* 内容区 */}

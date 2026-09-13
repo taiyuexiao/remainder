@@ -1,6 +1,6 @@
 [package]
 name = "remainder"
-version = "0.2.5"
+version = "0.2.6"
 description = "个人任务规划与提醒助手"
 edition = "2021"
 

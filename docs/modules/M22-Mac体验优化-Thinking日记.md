@@ -56,6 +56,7 @@ Mac 版实机使用暴露两个问题和一处新需求：
 |-----------|------|----------|
 | 创建 thinking 报告 500：CHECK constraint failed: type IN (...) | reports 表 v7 的 CHECK 约束不含 thinking | v18 迁移重建表放开 |
 | **真实库迁移崩了**：UNIQUE constraint failed: reports.type, reports.date，服务起不来 | 用户真实库中 2026-08-31 周报有 4 条重复行（v9 唯一索引前连点产生），重建表后建唯一索引失败；且迁移非事务，中途失败留下半完成状态 | ① 迁移改为事务（BEGIN/COMMIT/ROLLBACK）② 拷贝时按 (type,date) 去重，保留 updated_at 最新行。重复行均为同秒自动生成的周报变体，丢弃无损失 |
+| macOS 点红色叉号后程序坞图标点击无反应 | macOS 关窗只销毁窗口不退出进程；点程序坞图标系统发 `RunEvent::Reopen`，应用未处理；单实例插件只管二次启动进程 | 抽 `open_or_rebuild_main()`（有则唤出/无则按 conf 参数重建），同时挂到单实例回调和 `RunEvent::Reopen`（`.build()` + `app.run()` 接管事件循环） |
 
 ## 6. 验证记录
 
@@ -66,3 +67,5 @@ Mac 版实机使用暴露两个问题和一处新需求：
   thinking 日记创建成功 ✅，`/api/health` ok ✅
 - `pnpm --filter server build` / `pnpm --filter desktop build`：0 错误 ✅
 - IME 修复为 WebKit 标准手法（isComposing），实机用中文输入法验证
+- Dock 重开修复（v0.2.6）：`open -a` 触发 Reopen 路径无异常、进程保持单实例 ✅；
+  销毁+重建路径实机手测（点叉号 → 点程序坞图标，主窗口恢复）

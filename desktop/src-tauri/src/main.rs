@@ -141,6 +141,26 @@ fn read_clipboard_html() -> Option<String> {
     }
 }
 
+/// 唤出主窗口；已被红色叉号销毁（macOS 关窗不退出）则原地重建。
+/// 单实例回调与 macOS 程序坞点击（RunEvent::Reopen）共用。
+fn open_or_rebuild_main(app: &tauri::AppHandle) {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    match app.get_webview_window("main") {
+        Some(w) => {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        None => {
+            let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
+                .title("Remainder")
+                .inner_size(1200.0, 800.0)
+                .min_inner_size(900.0, 600.0)
+                .build();
+        }
+    }
+}
+
 fn main() {
     let shortcut_plugin = tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, shortcut, event| {
@@ -169,21 +189,7 @@ fn main() {
         // 单实例：再次启动（双击桌面图标/exe）时把主窗口唤到前台；
         // 若主窗口已被用户关闭（窗口对象已销毁），则原地重建
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-            match app.get_webview_window("main") {
-                Some(w) => {
-                    let _ = w.unminimize();
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
-                None => {
-                    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
-                        .title("Remainder")
-                        .inner_size(1200.0, 800.0)
-                        .min_inner_size(900.0, 600.0)
-                        .build();
-                }
-            }
+            open_or_rebuild_main(app);
         }))
         .invoke_handler(tauri::generate_handler![read_clipboard_html])
         .plugin(shortcut_plugin)
@@ -274,6 +280,15 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS：红色叉号只关窗不退出，点程序坞图标系统发 Reopen——唤出/重建主窗口
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                open_or_rebuild_main(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
