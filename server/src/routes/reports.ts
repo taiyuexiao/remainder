@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
 import { db } from '../db/connection.js';
 import { localDate, now, uuid } from './helpers.js';
 import { generateWeeklyReport } from '../llm/index.js';
+import { mdToTiptapJson } from '../services/markdown.js';
 
 const REPORT_COLS = 'id, type, date, title, content, created_at, updated_at';
 
@@ -10,6 +15,8 @@ interface ReportBody {
   date?: string;
   title?: string;
   content?: string;
+  /** Markdown 原文（M35：standup-agent 推送/AI 生成），服务端转 Tiptap JSON 存库 */
+  content_markdown?: string;
 }
 
 /** 本日任务概览 */
@@ -100,43 +107,7 @@ function weekStartDate(): Date {
   return d;
 }
 
-/** Markdown → Tiptap JSON */
-function mdToTiptapJson(md: string): string {
-  const nodes: Record<string, unknown>[] = [];
-  let list: string[] | null = null;
-  const flushList = () => {
-    if (list?.length) {
-      nodes.push({
-        type: 'bulletList',
-        content: list.map((t) => ({
-          type: 'listItem',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }],
-        })),
-      });
-    }
-    list = null;
-  };
-  for (const raw of md.split('\n')) {
-    const line = raw.trim();
-    if (!line) { flushList(); continue; }
-    const h = line.match(/^(#{1,3})\s+(.*)$/);
-    if (h) {
-      flushList();
-      nodes.push({
-        type: 'heading',
-        attrs: { level: h[1].length },
-        content: [{ type: 'text', text: h[2].replace(/\*\*(.+?)\*\*/g, '$1') }],
-      });
-      continue;
-    }
-    const li = line.match(/^[-*]\s+(.*)$/);
-    if (li) { (list ??= []).push(li[1].replace(/\*\*(.+?)\*\*/g, '$1')); continue; }
-    flushList();
-    nodes.push({ type: 'paragraph', content: [{ type: 'text', text: line.replace(/\*\*(.+?)\*\*/g, '$1') }] });
-  }
-  flushList();
-  return JSON.stringify({ type: 'doc', content: nodes.length ? nodes : [{ type: 'paragraph' }] });
-}
+/** Markdown → Tiptap JSON 转换器已提取到 services/markdown.ts（M35，供 standup-agent 集成复用） */
 
 /** 预填日报内容 */
 function buildDailyContent(data: ReturnType<typeof getDailyTasks>): string {
@@ -241,6 +212,113 @@ export async function createReport(type: 'daily' | 'weekly' | 'monthly' | 'think
   return { row: db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id) as Record<string, unknown>, created: true };
 }
 
+/* ---------- standup-agent（highagent）集成，M35 ---------- */
+
+type StandupType = 'daily' | 'weekly' | 'monthly';
+
+/** ISO 周标签 YYYY-Www（周一为起点），与 highagent week_label 一致 */
+function isoWeekLabel(d: Date): string {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3); // 本周周四
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const fDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - fDay + 3);
+  const week = 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86400000));
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/** 周一日期 YYYY-MM-DD，与前端 getCurrentDateForType('weekly') 一致 */
+function mondayOf(d: Date): string {
+  const m = new Date(d);
+  m.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDate(m);
+}
+
+/** highagent 输出目录：读 ~/.config/highagent/config.toml 的 output_dir，缺省 ~/daily-reports */
+function highagentOutputDir(): string {
+  try {
+    const toml = readFileSync(join(homedir(), '.config', 'highagent', 'config.toml'), 'utf8');
+    const m = toml.match(/^\s*output_dir\s*=\s*["'](.+?)["']/m);
+    if (m) return m[1].replace(/^~(?=$|\/)/, homedir());
+  } catch {
+    // 无配置用默认
+  }
+  return join(homedir(), 'daily-reports');
+}
+
+/** 按序找 highagent 可执行文件：~/.local/bin/highagent → PATH */
+function findHighagent(): string | null {
+  const local = join(homedir(), '.local', 'bin', 'highagent');
+  if (existsSync(local)) return local;
+  const which = spawnSync('which', ['highagent'], { encoding: 'utf8' });
+  const p = which.stdout?.trim().split('\n')[0];
+  return which.status === 0 && p ? p : null;
+}
+
+const STANDUP_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** 执行 highagent 子命令，等完成；超时杀进程。返回 exit code / stderr 摘要 */
+function runHighagent(bin: string, args: string[]): Promise<{ code: number | null; timedOut: boolean; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, STANDUP_TIMEOUT_MS);
+    child.stderr.on('data', (c) => {
+      stderr += c.toString();
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, timedOut, stderr: stderr.trim() });
+    });
+  });
+}
+
+/** standup 日期换算（与 ReportsPage getCurrentDateForType 对齐）：
+ *  daily → 当天；weekly → 任意一天换算出周一存库 + ISO 周标签定位文件；monthly → YYYY-MM */
+function standupTarget(type: StandupType, dateStr: string) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  if (type === 'daily') {
+    const date = localDate(d);
+    return { reportDate: date, title: `AI 日报 ${date}`, args: ['report', '--date', date], file: `${date}.md` };
+  }
+  if (type === 'weekly') {
+    const label = isoWeekLabel(d);
+    return {
+      reportDate: mondayOf(d),
+      title: `AI 周报 ${label}`,
+      args: ['weekly', '--date', localDate(d)],
+      file: `weekly-${label}.md`,
+    };
+  }
+  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return { reportDate: ym, title: `AI 月报 ${ym}`, args: ['monthly', '--date', localDate(d)], file: `monthly-${ym}.md` };
+}
+
+/** 把 markdown 写入已有报告（content_markdown 共用逻辑） */
+function writeReportMarkdown(id: string, md: string, title?: string) {
+  const sets = ['content = ?', 'updated_at = ?'];
+  const params: unknown[] = [mdToTiptapJson(md), now()];
+  if (title !== undefined) {
+    sets.push('title = ?');
+    params.push(title);
+  }
+  params.push(id);
+  db.prepare(`UPDATE reports SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+}
+
+/* ---------- standup-agent 集成结束 ---------- */
+
 export default async function reportRoutes(app: FastifyInstance) {
   // 任务概览
   app.get('/api/reports/tasks/:range', async (req, reply) => {
@@ -277,12 +355,73 @@ export default async function reportRoutes(app: FastifyInstance) {
     return report;
   });
 
-  // 创建报告（同一类型同一日期已存在则返回已有）
+  // 创建报告（同一类型同一日期已存在则返回已有；M35：可带 title/content/content_markdown 直接写入）
   app.post('/api/reports', async (req, reply) => {
     const b = (req.body ?? {}) as ReportBody;
     if (!b.type || !b.date) return reply.code(400).send({ error: 'type 和 date 必填' });
     const { row, created } = await createReport(b.type, b.date);
-    return reply.code(created ? 201 : 200).send(row);
+    if (b.content_markdown !== undefined) {
+      writeReportMarkdown(row.id as string, b.content_markdown, b.title);
+    } else if (b.title !== undefined || b.content !== undefined) {
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      if (b.title !== undefined) { sets.push('title = ?'); params.push(b.title.trim()); }
+      if (b.content !== undefined) { sets.push('content = ?'); params.push(b.content); }
+      sets.push('updated_at = ?'); params.push(now(), row.id as string);
+      db.prepare(`UPDATE reports SET ${sets.join(',')} WHERE id = ?`).run(...params);
+    }
+    const fresh = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(row.id as string);
+    return reply.code(created ? 201 : 200).send(fresh);
+  });
+
+  // AI 生成报告（M35）：调本机 standup-agent（highagent）生成日/周/月报并导入
+  app.post('/api/reports/standup', async (req, reply) => {
+    const b = (req.body ?? {}) as { type?: StandupType; date?: string };
+    if (!b.type || !['daily', 'weekly', 'monthly'].includes(b.type)) {
+      return reply.code(400).send({ error: 'type 必须是 daily/weekly/monthly' });
+    }
+    const dateStr = b.date ?? localDate();
+    const target = standupTarget(b.type, dateStr);
+    if (!target) return reply.code(400).send({ error: 'date 格式非法（YYYY-MM-DD）' });
+
+    const bin = findHighagent();
+    if (!bin) {
+      return reply
+        .code(502)
+        .send({ error: '未找到 highagent 可执行文件，请先安装 standup-agent（~/.local/bin/highagent 或加入 PATH）' });
+    }
+
+    let run: { code: number | null; timedOut: boolean; stderr: string };
+    try {
+      run = await runHighagent(bin, target.args);
+    } catch (e) {
+      return reply.code(502).send({ error: `highagent 启动失败：${(e as Error).message}` });
+    }
+    if (run.timedOut) {
+      return reply.code(502).send({ error: 'highagent 执行超时（10 分钟），已终止' });
+    }
+
+    // 已存在跳过时 highagent 仍 exit 0，属成功；非 0 时若产物文件已在（如 monthly 子命令尚未实现但文件已推送），仍导入
+    const filePath = join(highagentOutputDir(), target.file);
+    if (run.code !== 0) {
+      if (!existsSync(filePath)) {
+        const tail = run.stderr ? `：${run.stderr.slice(-500)}` : '';
+        return reply.code(502).send({ error: `highagent 执行失败（exit ${run.code}）${tail}` });
+      }
+    } else if (!existsSync(filePath)) {
+      return reply.code(502).send({ error: `highagent 执行成功但未找到产物文件 ${filePath}` });
+    }
+
+    let md: string;
+    try {
+      md = readFileSync(filePath, 'utf8');
+    } catch (e) {
+      return reply.code(502).send({ error: `读取报告文件失败：${(e as Error).message}` });
+    }
+
+    const { row } = await createReport(b.type, target.reportDate);
+    writeReportMarkdown(row.id as string, md, target.title);
+    return db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(row.id as string);
   });
 
   // 更新报告
@@ -291,6 +430,10 @@ export default async function reportRoutes(app: FastifyInstance) {
     const exist = db.prepare('SELECT id FROM reports WHERE id = ?').get(id);
     if (!exist) return reply.code(404).send({ error: '报告不存在' });
     const b = (req.body ?? {}) as ReportBody;
+    if (b.content_markdown !== undefined) {
+      writeReportMarkdown(id, b.content_markdown, b.title);
+      return db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE id = ?`).get(id);
+    }
     const sets: string[] = [];
     const params: unknown[] = [];
     if (b.title !== undefined) { sets.push('title = ?'); params.push(b.title.trim()); }

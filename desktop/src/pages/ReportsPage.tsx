@@ -215,6 +215,14 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // AI 生成（standup-agent，M35）：可能耗时 1-2 分钟
+  const [generating, setGenerating] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 6000);
+  };
 
   const loadReports = useCallback(async () => {
     try {
@@ -241,6 +249,21 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
     }
   };
 
+  /** ✨ AI 生成（M35）：调 standup-agent 生成本类型当前日期的报告并导入 */
+  const generateWithStandup = async () => {
+    if (type === 'thinking' || generating) return;
+    setGenerating(true);
+    try {
+      const report = await api.generateStandupReport({ type, date: getCurrentDateForType(type) });
+      await loadReports();
+      setSelectedId(report.id);
+    } catch (e) {
+      showToast(`AI 生成失败：${(e as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const deleteReport = async (id: string) => {
     if (!confirm('确认删除该报告？')) return;
     try {
@@ -260,12 +283,24 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
           <button onClick={onBack} className="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1">
             ← 返回
           </button>
-          <button
-            onClick={openToday}
-            className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
-          >
-            新建
-          </button>
+          <div className="flex items-center gap-1.5">
+            {type !== 'thinking' && (
+              <button
+                onClick={generateWithStandup}
+                disabled={generating}
+                title="调用本机 standup-agent 生成 AI 报告"
+                className="text-xs rounded-md bg-violet-600 text-white px-2.5 py-1.5 hover:bg-violet-700 disabled:opacity-50 disabled:cursor-wait"
+              >
+                {generating ? '生成中…' : '✨ AI 生成'}
+              </button>
+            )}
+            <button
+              onClick={openToday}
+              className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
+            >
+              新建
+            </button>
+          </div>
         </header>
         <div className="px-3 py-2 border-b border-slate-100">
           <h3 className="font-medium text-sm">{TYPE_LABEL[type]}</h3>
@@ -316,6 +351,19 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
           </div>
         )}
       </main>
+
+      {/* AI 生成进行中提示（standup-agent 可能要跑 1-2 分钟） */}
+      {generating && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-violet-600 text-white text-sm px-4 py-3 shadow-xl flex items-center gap-2">
+          <span className="animate-pulse">✨</span> 正在调用 standup-agent 生成{TYPE_LABEL[type]}，可能需要 1-2 分钟…
+        </div>
+      )}
+      {/* 失败 toast */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md rounded-xl bg-red-600 text-white text-sm px-4 py-3 shadow-xl">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

@@ -328,10 +328,13 @@ export const api = {
   getReport: (id: string) => req<Report>(`/api/reports/${id}`),
   getReportByDate: (type: string, date: string) =>
     req<Report>(`/api/reports/by-date?type=${type}&date=${encodeURIComponent(date)}`),
-  createReport: (b: { type: 'daily' | 'weekly' | 'monthly' | 'thinking'; date: string; title?: string; content?: string }) =>
+  createReport: (b: { type: 'daily' | 'weekly' | 'monthly' | 'thinking'; date: string; title?: string; content?: string; content_markdown?: string }) =>
     req<Report>('/api/reports', { method: 'POST', body: JSON.stringify(b) }),
-  updateReport: (id: string, b: { title?: string; content?: string }) =>
+  updateReport: (id: string, b: { title?: string; content?: string; content_markdown?: string }) =>
     req<Report>(`/api/reports/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  // AI 生成报告（M35）：调本机 standup-agent（highagent）生成并导入；可能耗时 1-2 分钟
+  generateStandupReport: (b: { type: 'daily' | 'weekly' | 'monthly'; date?: string }) =>
+    req<Report>('/api/reports/standup', { method: 'POST', body: JSON.stringify(b) }),
   deleteReport: (id: string) => req<{ deleted: string }>(`/api/reports/${id}`, { method: 'DELETE' }),
   // 调研画布
   listCanvasBoards: () => req<CanvasBoard[]>('/api/canvas-boards'),
