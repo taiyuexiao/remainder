@@ -47,6 +47,7 @@ macOS 没有 Win32 桌面层，等价物是 CoreGraphics 窗口层级（window l
 | Mac 便携包首次启动"无法连接后端服务" | 便携 zip 里 `server/node_modules` 为空，后端缺 fastify 起不来 | 在包内 `server/` 用内置 node 执行 npm install --omit=dev 补齐依赖 |
 | `better_sqlite3.node` ERR_DLOPEN_FAILED：NODE_MODULE_VERSION 147 vs 127 | 用系统 node 26 跑 npm install，原生模块编成 node 26 的 ABI，与包内置 node 22 不符 | 用包内置 node 执行 prebuild-install，拉取匹配 node 22 ABI 的预编译二进制 |
 | `data-sync.mjs pull` 报 `curl 56 Recv failure: Connection reset by peer` | 网络抖断（GitHub 直连不稳定） | 重试即恢复；大数据目录建议分批提交推送（M19 bootstrap 已解决） |
+| macOS 上桌宠/速记窗外围一圈白框盖住界面（共性问题，widget/pet/capture 三个透明窗都有） | WKWebView 默认自绘不透明白底；wry 去掉白底的私有 KVC（`drawsBackground = NO`）只在 wry `transparent` feature 下编译，而它由 tauri crate 的 `macos-private-api` feature 间接打开，项目此前未开 | `desktop/src-tauri/Cargo.toml` 的 tauri 依赖加 `features = ["macos-private-api"]`；`tauri.conf.json` 的 `app` 加 `"macOSPrivateApi": true`。前端无需改（widget/capture/pet 已挂 widget-mode 透明 CSS） |
 
 ## 7. 验证记录
 
