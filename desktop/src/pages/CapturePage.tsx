@@ -144,6 +144,8 @@ export default function CapturePage() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // macOS 中文输入法：组词期间的回车是确认候选词，不能触发提交/关闭
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       close();

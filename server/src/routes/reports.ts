@@ -6,7 +6,7 @@ import { generateWeeklyReport } from '../llm/index.js';
 const REPORT_COLS = 'id, type, date, title, content, created_at, updated_at';
 
 interface ReportBody {
-  type?: 'daily' | 'weekly' | 'monthly';
+  type?: 'daily' | 'weekly' | 'monthly' | 'thinking';
   date?: string;
   title?: string;
   content?: string;
@@ -193,8 +193,9 @@ function buildMonthlyContent(data: ReturnType<typeof getMonthlyTasks>): string {
   return lines.join('\n');
 }
 
-/** 创建报告（同一类型同一日期已存在则返回已有）。reports 路由与 agent 工具共用（M34 / A3） */
-export async function createReport(type: 'daily' | 'weekly' | 'monthly', date: string) {
+/** 创建报告（同一类型同一日期已存在则返回已有）。reports 路由与 agent 工具共用（M34 / A3）
+ *  thinking 为日记板块（M22）：不做任务预填，给空文档 */
+export async function createReport(type: 'daily' | 'weekly' | 'monthly' | 'thinking', date: string) {
   const existing = db.prepare(`SELECT ${REPORT_COLS} FROM reports WHERE type = ? AND date = ?`).get(type, date) as
     | Record<string, unknown>
     | undefined;
@@ -202,7 +203,10 @@ export async function createReport(type: 'daily' | 'weekly' | 'monthly', date: s
 
   let md: string;
   let title: string;
-  if (type === 'daily') {
+  if (type === 'thinking') {
+    md = '';
+    title = `日记 ${date}`;
+  } else if (type === 'daily') {
     md = buildDailyContent(getDailyTasks());
     title = `日报 ${date}`;
   } else if (type === 'weekly') {

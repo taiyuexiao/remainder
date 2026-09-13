@@ -111,6 +111,8 @@ export function migrate() {
   if ((db.pragma('user_version', { simple: true }) as number) < 16) migrateToV16();
   // v17: agent 运行轨迹（M34 / A4 轨迹回放）
   if ((db.pragma('user_version', { simple: true }) as number) < 17) migrateToV17();
+  // v18: reports.type 放开 thinking 日记（M22）
+  if ((db.pragma('user_version', { simple: true }) as number) < 18) migrateToV18();
 }
 
 /**
@@ -543,4 +545,42 @@ function migrateToV17() {
     CREATE INDEX IF NOT EXISTS idx_agent_runs_msg ON agent_runs(message_id);
   `);
   db.pragma('user_version = 17');
+}
+
+/** v18 迁移（M22）：reports.type 放开 thinking（日记板块）。SQLite 不支持改 CHECK 约束，重建表。
+ *  历史库可能存在 (type,date) 重复行（v9 唯一索引建立前的连点产物），按 updated_at 去重留最新 */
+function migrateToV18() {
+  db.pragma('foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE reports_v18 (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL CHECK(type IN ('daily','weekly','monthly','thinking')),
+        date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      );
+      INSERT INTO reports_v18 (id,type,date,title,content,created_at,updated_at)
+        SELECT id,type,date,title,content,created_at,updated_at FROM reports r
+        WHERE NOT EXISTS (
+          SELECT 1 FROM reports r2
+          WHERE r2.type = r.type AND r2.date = r.date
+            AND (r2.updated_at > r.updated_at
+                 OR (r2.updated_at = r.updated_at AND r2.rowid > r.rowid))
+        );
+      DROP TABLE reports;
+      ALTER TABLE reports_v18 RENAME TO reports;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_type_date ON reports(type, date);
+    `);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    db.pragma('foreign_keys = ON');
+    throw e;
+  }
+  db.pragma('foreign_keys = ON');
+  db.pragma('user_version = 18');
 }

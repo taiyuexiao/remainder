@@ -265,6 +265,8 @@ export const api = {
   listInbox: () => req<InboxItem[]>('/api/inbox'),
   createInbox: (content: string, tags = '') =>
     req<InboxItem>('/api/inbox', { method: 'POST', body: JSON.stringify({ content, tags }) }),
+  updateInbox: (id: string, b: { content?: string; tags?: string }) =>
+    req<InboxItem>(`/api/inbox/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
   deleteInbox: (id: string) => req<{ deleted: string }>(`/api/inbox/${id}`, { method: 'DELETE' }),
   // projectId → 进已有项目为子任务；否则 main/side/follow 新建同名项目、idea 平铺
   convertInbox: (id: string, b: ConvertInput) =>
@@ -326,7 +328,7 @@ export const api = {
   getReport: (id: string) => req<Report>(`/api/reports/${id}`),
   getReportByDate: (type: string, date: string) =>
     req<Report>(`/api/reports/by-date?type=${type}&date=${encodeURIComponent(date)}`),
-  createReport: (b: { type: 'daily' | 'weekly' | 'monthly'; date: string; title?: string; content?: string }) =>
+  createReport: (b: { type: 'daily' | 'weekly' | 'monthly' | 'thinking'; date: string; title?: string; content?: string }) =>
     req<Report>('/api/reports', { method: 'POST', body: JSON.stringify(b) }),
   updateReport: (id: string, b: { title?: string; content?: string }) =>
     req<Report>(`/api/reports/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),

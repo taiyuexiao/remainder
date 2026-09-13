@@ -32,6 +32,30 @@ export default async function inboxRoutes(app: FastifyInstance) {
     return { deleted: id };
   });
 
+  // 编辑速记（M22）：内容/标签
+  app.patch('/api/inbox/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const exist = db.prepare('SELECT id FROM inbox WHERE id = ?').get(id);
+    if (!exist) return reply.code(404).send({ error: '条目不存在' });
+    const b = (req.body ?? {}) as { content?: string; tags?: string };
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (b.content !== undefined) {
+      if (!b.content.trim()) return reply.code(400).send({ error: 'content 不能为空' });
+      sets.push('content = ?');
+      params.push(b.content.trim());
+    }
+    if (b.tags !== undefined) {
+      sets.push('tags = ?');
+      params.push(b.tags.trim());
+    }
+    if (sets.length) {
+      params.push(id);
+      db.prepare(`UPDATE inbox SET ${sets.join(',')} WHERE id = ?`).run(...params);
+    }
+    return db.prepare('SELECT * FROM inbox WHERE id = ?').get(id);
+  });
+
   // 一键转任务
   app.post('/api/inbox/:id/convert', async (req, reply) => {
     const { id } = req.params as { id: string };

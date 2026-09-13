@@ -23,13 +23,34 @@ export default function InboxPage() {
   }, [reload]);
 
   const [showNew, setShowNew] = useState(false);
+  // 编辑态（M22）：非 null 时弹窗为"编辑速记"，保存走 updateInbox
+  const [editItem, setEditItem] = useState<InboxItem | null>(null);
+
+  const openNew = () => {
+    setEditItem(null);
+    setContent('');
+    setTags('');
+    setShowNew(true);
+  };
+
+  const openEdit = (it: InboxItem) => {
+    setEditItem(it);
+    setContent(it.content);
+    setTags(it.tags);
+    setShowNew(true);
+  };
 
   const add = async () => {
     if (!content.trim()) return;
-    await api.createInbox(content.trim(), tags.trim());
+    if (editItem) {
+      await api.updateInbox(editItem.id, { content: content.trim(), tags: tags.trim() });
+    } else {
+      await api.createInbox(content.trim(), tags.trim());
+    }
     setContent('');
     setTags('');
     setShowNew(false);
+    setEditItem(null);
     reload();
   };
 
@@ -83,7 +104,7 @@ export default function InboxPage() {
           <p className="text-xs text-slate-400 mt-0.5">速记暂存区 · 回车快速记录，之后一键转为任务</p>
         </div>
         <button
-          onClick={() => setShowNew(true)}
+          onClick={openNew}
           className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 shadow-sm"
         >
           ＋ 新建速记
@@ -100,7 +121,9 @@ export default function InboxPage() {
             className="w-[480px] rounded-2xl bg-white shadow-2xl p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold text-slate-800 mb-3">💡 新建速记</h3>
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">
+              {editItem ? '✏️ 编辑速记' : '💡 新建速记'}
+            </h3>
             <textarea
               autoFocus
               rows={4}
@@ -109,6 +132,8 @@ export default function InboxPage() {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={(e) => {
+                // macOS 中文输入法：组词期间的回车是确认候选词，不能触发提交
+                if (e.nativeEvent.isComposing) return;
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) add();
                 if (e.key === 'Escape') setShowNew(false);
               }}
@@ -118,7 +143,10 @@ export default function InboxPage() {
               placeholder="标签（可选，逗号分隔）"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && add()}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter') add();
+              }}
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -132,7 +160,7 @@ export default function InboxPage() {
                 disabled={!content.trim()}
                 className="rounded-lg bg-indigo-600 text-white px-4 py-1.5 text-sm hover:bg-indigo-700 disabled:opacity-40"
               >
-                存入 Inbox
+                {editItem ? '保存修改' : '存入 Inbox'}
               </button>
             </div>
           </div>
@@ -145,10 +173,22 @@ export default function InboxPage() {
         ) : (
           items.map((it) => (
             <div key={it.id} className="rounded-xl bg-white border border-slate-200 p-4">
-              <p className="text-sm text-slate-800">{it.content}</p>
+              <p
+                className="text-sm text-slate-800 cursor-pointer hover:text-indigo-700 whitespace-pre-wrap"
+                onClick={() => openEdit(it)}
+                title="点击打开编辑"
+              >
+                {it.content}
+              </p>
               <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
                 <span>{it.created_at.slice(0, 16).replace('T', ' ')}</span>
                 {it.tags && <span className="px-1.5 py-0.5 rounded bg-slate-100">{it.tags}</span>}
+                <button
+                  onClick={() => openEdit(it)}
+                  className="text-slate-500 hover:underline"
+                >
+                  编辑
+                </button>
                 <button
                   onClick={() => { setConvertId(it.id); setConvertProjectId(''); }}
                   className="text-indigo-600 hover:underline"

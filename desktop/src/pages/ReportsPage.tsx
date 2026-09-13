@@ -15,7 +15,12 @@ const TYPE_LABEL: Record<string, string> = {
   daily: '日报',
   weekly: '周报',
   monthly: '月报',
+  thinking: 'Thinking',
 };
+
+/** 日记板块进入密码（M22）：本地个人应用的前端门禁，仅防随手点开 */
+const THINKING_PASSWORD = '335435';
+const THINKING_UNLOCK_KEY = 'thinking-unlocked';
 
 const RANGE_TO_TYPE: Record<string, 'daily' | 'weekly' | 'monthly'> = {
   today: 'daily',
@@ -47,8 +52,32 @@ function formatDate(iso: string) {
 }
 
 export default function ReportsPage() {
-  const [activeType, setActiveType] = useState<'daily' | 'weekly' | 'monthly' | null>(null);
+  const [activeType, setActiveType] = useState<'daily' | 'weekly' | 'monthly' | 'thinking' | null>(null);
   const [tasks, setTasks] = useState<Record<string, TaskRangeData>>({});
+  // Thinking 日记密码门（M22）
+  const [lockVisible, setLockVisible] = useState(false);
+  const [pwd, setPwd] = useState('');
+  const [pwdError, setPwdError] = useState(false);
+
+  const enterThinking = () => {
+    if (sessionStorage.getItem(THINKING_UNLOCK_KEY) === '1') {
+      setActiveType('thinking');
+      return;
+    }
+    setPwd('');
+    setPwdError(false);
+    setLockVisible(true);
+  };
+
+  const tryUnlock = () => {
+    if (pwd === THINKING_PASSWORD) {
+      sessionStorage.setItem(THINKING_UNLOCK_KEY, '1');
+      setLockVisible(false);
+      setActiveType('thinking');
+    } else {
+      setPwdError(true);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -82,7 +111,7 @@ export default function ReportsPage() {
         <p className="text-xs text-slate-400 mt-0.5">选择类型进入编辑</p>
       </header>
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {(['today', 'week', 'month'] as const).map((r) => {
             const t = tasks[r];
             const type = RANGE_TO_TYPE[r];
@@ -115,13 +144,74 @@ export default function ReportsPage() {
               </button>
             );
           })}
+          {/* Thinking 日记（M22）：密码保护 */}
+          <button
+            onClick={enterThinking}
+            className="rounded-xl bg-white border border-slate-200 p-6 text-left hover:shadow-md transition-shadow"
+          >
+            <div className="text-3xl mb-3">🔒</div>
+            <div className="font-semibold text-slate-800">Thinking</div>
+            <div className="text-xs text-slate-400 mt-1">日记 · 私密空间</div>
+            <div className="mt-3 text-sm text-slate-600">需密码进入</div>
+          </button>
         </div>
       </div>
+
+      {/* Thinking 密码弹窗 */}
+      {lockVisible && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setLockVisible(false)}
+        >
+          <div
+            className="w-72 rounded-2xl bg-white shadow-2xl p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">🔒 输入密码进入 Thinking</h3>
+            <input
+              autoFocus
+              type="password"
+              inputMode="numeric"
+              className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                pwdError
+                  ? 'border-red-300 focus:ring-red-300'
+                  : 'border-slate-300 focus:ring-indigo-300'
+              }`}
+              placeholder="密码"
+              value={pwd}
+              onChange={(e) => {
+                setPwd(e.target.value);
+                setPwdError(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter') tryUnlock();
+                if (e.key === 'Escape') setLockVisible(false);
+              }}
+            />
+            {pwdError && <p className="text-xs text-red-500 mt-1.5">密码错误</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setLockVisible(false)}
+                className="rounded-lg px-4 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={tryUnlock}
+                className="rounded-lg bg-indigo-600 text-white px-4 py-1.5 text-sm hover:bg-indigo-700"
+              >
+                进入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'; onBack: () => void }) {
+function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly' | 'thinking'; onBack: () => void }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -230,9 +320,9 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
   );
 }
 
-function getCurrentDateForType(type: 'daily' | 'weekly' | 'monthly'): string {
+function getCurrentDateForType(type: 'daily' | 'weekly' | 'monthly' | 'thinking'): string {
   const now = new Date();
-  if (type === 'daily') return now.toISOString().slice(0, 10);
+  if (type === 'daily' || type === 'thinking') return now.toISOString().slice(0, 10);
   if (type === 'monthly') return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const dow = (now.getDay() + 6) % 7;
   const monday = new Date(now);
