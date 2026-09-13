@@ -356,6 +356,12 @@ export const api = {
   // 用系统浏览器打开外部链接
   openExternal: (url: string) =>
     req<{ ok: boolean }>('/api/open-external', { method: 'POST', body: JSON.stringify({ url }) }),
+  // 一键双端同步（M21）：提交本地 + 拉远端；远端有数据时后端自重启应用
+  sync: () =>
+    req<{ status: 'pushed' | 'uptodate' | 'restarting'; committed?: boolean; backup?: string | null }>(
+      '/api/sync',
+      { method: 'POST' },
+    ),
   // 就选中内容提问（M16）
   askLlm: (text: string, question: string) =>
     req<{ result: string }>('/api/llm/ask', { method: 'POST', body: JSON.stringify({ text, question }) }),

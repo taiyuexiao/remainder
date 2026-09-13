@@ -25,6 +25,7 @@ import publicationRoutes from './routes/publications.js';
 import assetRoutes from './routes/assets.js';
 import teamRoutes from './routes/teams.js';
 import systemRoutes from './routes/system.js';
+import syncRoutes from './routes/sync.js';
 import chatRoutes from './routes/chat.js';
 import { startScheduler } from './scheduler/index.js';
 
@@ -113,6 +114,7 @@ await app.register(okfExportRoutes);
 await app.register(publicationRoutes);
 await app.register(assetRoutes);
 await app.register(teamRoutes);
+await app.register(syncRoutes);
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1']);
 const isLoopback = (ip?: string) => !ip || LOOPBACK.has(ip);

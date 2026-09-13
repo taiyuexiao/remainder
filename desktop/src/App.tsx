@@ -38,6 +38,44 @@ export default function App() {
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
   // 后端就绪门：0=检查中 1=就绪 2=超时（避免后端启动慢时各页直接报"后端连接失败"）
   const [backendState, setBackendState] = useState<0 | 1 | 2>(0);
+  // 一键双端同步（M21）：idle=空闲 syncing=请求中 restarting=后端重启应用远端数据
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'restarting'>('idle');
+  const [syncMsg, setSyncMsg] = useState('');
+
+  const doSync = async () => {
+    if (syncState !== 'idle') return;
+    setSyncState('syncing');
+    setSyncMsg('');
+    try {
+      const r = await api.sync();
+      if (r.status === 'restarting') {
+        // 后端正在退出并换用远端数据：轮询健康检查，恢复后整体刷新
+        setSyncState('restarting');
+        for (let i = 0; i < 40; i++) {
+          await new Promise((res) => window.setTimeout(res, 1000));
+          try {
+            await api.health();
+            location.reload();
+            return;
+          } catch {
+            /* 后端尚未恢复 */
+          }
+        }
+        setSyncMsg('后端重启超时，请重开应用');
+        setSyncState('idle');
+        return;
+      }
+      const backupTip = r.backup ? `（本地改动已备份到 ${r.backup} 分支）` : '';
+      setSyncMsg(
+        r.status === 'pushed' ? `已推送到远端，另一台设备点同步即可接收` : `已是最新${backupTip}`,
+      );
+    } catch (e) {
+      setSyncMsg(`同步失败：${(e as Error).message}`);
+    } finally {
+      setSyncState((s) => (s === 'syncing' ? 'idle' : s));
+      window.setTimeout(() => setSyncMsg(''), 10_000);
+    }
+  };
 
   // agent client_actions（M34 / A3）：跨页面切换栏目
   useEffect(() => {
@@ -135,8 +173,24 @@ export default function App() {
       {/* 左侧导航 */}
       <aside className="w-52 shrink-0 bg-white border-r border-slate-200 flex flex-col">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h1 className="text-lg font-bold tracking-tight">Remainder</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-bold tracking-tight">Remainder</h1>
+            <button
+              onClick={doSync}
+              disabled={syncState !== 'idle'}
+              title="双端同步：提交本地改动并拉取另一端数据"
+              className="w-7 h-7 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:cursor-default flex items-center justify-center transition-colors"
+            >
+              <span className={`text-sm leading-none ${syncState !== 'idle' ? 'inline-block animate-spin' : ''}`}>
+                ⟳
+              </span>
+            </button>
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">任务规划与提醒助手</p>
+          {syncMsg && <p className="text-[11px] text-indigo-500 mt-1.5 leading-snug">{syncMsg}</p>}
+          {syncState === 'restarting' && (
+            <p className="text-[11px] text-indigo-500 mt-1.5 leading-snug">正在应用远端数据，服务重启中…</p>
+          )}
         </div>
         <nav className="flex-1 py-2">
           {NAV.map((n) => (
@@ -154,7 +208,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="px-5 py-3 text-[10px] text-slate-300">v0.1.0 · 本地数据</div>
+        <div className="px-5 py-3 text-[10px] text-slate-300">v0.2.4 · 本地数据</div>
       </aside>
 
       {/* 内容区 */}
