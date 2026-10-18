@@ -23,6 +23,12 @@ Mac 版实机使用暴露两个问题和一处新需求：
 - 修法：所有处理 Enter/Escape 的 keydown 入口先判 `e.nativeEvent.isComposing`，组词中直接 return
 - 涉及文件：`CapturePage.tsx`（全局速记框根节点 onKeyDown）、`InboxPage.tsx`（弹窗 textarea / 标签 input）、
   `ReportsPage.tsx`（Thinking 密码框）
+- **2026-10-02 补修（见报错表第 4 行）**：纯 isComposing 守卫在 WKWebView 上漏掉
+  "确认候选词"那一条回车（compositionend 先派发，随后 keydown 的 isComposing 已是 false）。
+  升级为 `desktop/src/ime.ts` 的 `useImeGuard()`：compositionstart 置位标记 +
+  compositionend 延迟到下一个宏任务复位 + keyCode 229 兜底，覆盖两种派发顺序。
+  守卫范围从 3 处扫到 7 个文件全部裸 Enter/Escape 入口（速记、AI 助手、桌宠聊天、
+  Inbox 两处、Thinking 密码框、文档 InlineCreator、任务页三处新建输入框）
 
 ### 3.2 Inbox 打开编辑
 
@@ -44,6 +50,9 @@ Mac 版实机使用暴露两个问题和一处新需求：
 ## 4. 产出
 
 - `desktop/src/pages/CapturePage.tsx`、`InboxPage.tsx`、`ReportsPage.tsx`：isComposing 守卫
+- `desktop/src/ime.ts`（2026-10-02 补修）：`useImeGuard()` 共享守卫 hook，接入
+  `CapturePage`、`ChatPage`、`PetPage`、`InboxPage`、`ReportsPage`、`DocsPage`（InlineCreator）、
+  `TasksPage`（ProjectColumn/ProjectFolder/IdeaSection 三处输入框）
 - `server/src/routes/inbox.ts`：PATCH /api/inbox/:id
 - `server/src/routes/reports.ts`：type 放开 thinking，thinking 不预填任务内容（空文档）
 - `server/src/db/schema.ts`：migrateToV18（重建 reports 表 + 去重）
@@ -57,6 +66,8 @@ Mac 版实机使用暴露两个问题和一处新需求：
 | 创建 thinking 报告 500：CHECK constraint failed: type IN (...) | reports 表 v7 的 CHECK 约束不含 thinking | v18 迁移重建表放开 |
 | **真实库迁移崩了**：UNIQUE constraint failed: reports.type, reports.date，服务起不来 | 用户真实库中 2026-08-31 周报有 4 条重复行（v9 唯一索引前连点产生），重建表后建唯一索引失败；且迁移非事务，中途失败留下半完成状态 | ① 迁移改为事务（BEGIN/COMMIT/ROLLBACK）② 拷贝时按 (type,date) 去重，保留 updated_at 最新行。重复行均为同秒自动生成的周报变体，丢弃无损失 |
 | macOS 点红色叉号后程序坞图标点击无反应 | macOS 关窗只销毁窗口不退出进程；点程序坞图标系统发 `RunEvent::Reopen`，应用未处理；单实例插件只管二次启动进程 | 抽 `open_or_rebuild_main()`（有则唤出/无则按 conf 参数重建），同时挂到单实例回调和 `RunEvent::Reopen`（`.build()` + `app.run()` 接管事件循环） |
+| **2026-10-02** 速记框打英文（如 ai）按回车上屏，回车同时触发"存入"关掉面板；AI 助手/桌宠聊天等裸 Enter 提交的输入框同理 | isComposing 只挡得住"组词过程中"的 keydown；WKWebView 确认候选词时的顺序是 compositionend 先派发、确认键 keydown 后派发，该 keydown 的 isComposing 已是 false（Inbox textarea 用 Ctrl+Enter 提交所以当年没暴露） | `desktop/src/ime.ts` 的 `useImeGuard()`：composition 标记 + isComposing/keyCode 229 + 事件时间戳兜底（确认键 keydown 与 compositionend 同属一次按键，timeStamp 几乎相同，人手下一次回车至少相隔几十毫秒）；统一替换全部 7 个文件裸 Enter/Escape 入口的守卫 |
+| **2026-10-02** 首轮修复后用户实测"没变化" | 用户跑的是 9/13 构建的 0.2.6 打包版（前端资源构建时嵌入 .app，改源码不重编不生效），进程自周二起一直没退出 | 守卫加固为时间戳兜底后重编 0.2.7，替换安装目录（旧包留 `Remainder.old1.app`）；教训同 Windows 侧"改了没生效先怀疑旧实例"——**macOS 上改桌面端前端必须重编 .app 并替换 + 用户完全退出重启** |
 
 ## 6. 验证记录
 
@@ -67,5 +78,8 @@ Mac 版实机使用暴露两个问题和一处新需求：
   thinking 日记创建成功 ✅，`/api/health` ok ✅
 - `pnpm --filter server build` / `pnpm --filter desktop build`：0 错误 ✅
 - IME 修复为 WebKit 标准手法（isComposing），实机用中文输入法验证
+- 2026-10-02 补修：`pnpm tauri build` 0.2.7 构建 ✅（desktop build 0 错误；新守卫代码确认在
+  dist 产物中）；已替换安装目录并验证 Info.plist 版本 0.2.7 ✅，待用户完全退出重启后实机复测
+  （速记框打英文回车上屏、AI 助手发英文、任务名混输英文三类入口）
 - Dock 重开修复（v0.2.6）：`open -a` 触发 Reopen 路径无异常、进程保持单实例 ✅；
   销毁+重建路径实机手测（点叉号 → 点程序坞图标，主窗口恢复）

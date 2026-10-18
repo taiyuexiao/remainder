@@ -36,8 +36,10 @@ const MIME_BY_EXT: Record<string, string> = {
 
 export default async function live2dRoutes(app: FastifyInstance) {
   // 模型列表：扫描子目录，优先 Cubism3+（*.model3.json），兼容 Cubism2（model.json / *.model.json）
-  app.get('/api/live2d/models', async () => {
-    const base = `http://127.0.0.1:${config.port}`;
+  app.get('/api/live2d/models', async (req) => {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim();
+    const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0].trim();
+    const base = `${forwardedProto || req.protocol}://${forwardedHost || req.headers.host || `127.0.0.1:${config.port}`}`;
     const models: { name: string; url: string; format: 'cubism4' | 'cubism2' }[] = [];
     const seen = new Set<string>();
     for (const root of MODEL_ROOTS) {
@@ -58,7 +60,7 @@ export default async function live2dRoutes(app: FastifyInstance) {
         });
       }
     }
-    return { models, root: LIVE2D_MODEL_ROOT };
+    return { models, root: 'public', scope: 'public' };
   });
 
   // 模型文件下发（支持嵌套路径，如 shizuku/shizuku.1024/texture_00.png）

@@ -30,7 +30,7 @@
 
 ## 环境
 
-- 本地启动：根目录 `启动Remainder.bat`（起 server + remainder.exe），桌面图标指向它
+- 本地启动：根目录 `启动Remainder.bat`（起 server + remainder.exe），桌面图标指向它；macOS 侧 LaunchAgent `com.remainder.server` 负责 server 开机自启（~/Library/LaunchAgents，工作目录 `~/Applications/Remainder`），桌面端直接开 Remainder.app 即可
 - 数据：`server/data/`（remainder.db、live2d-models/、exports/），全部 gitignored
 - LLM：DeepSeek，配置在 `server/.env`（LLM_API_KEY），走 `/api/llm/chat`
 - CI：`.github/workflows/release.yml`（workflow_dispatch + v* tag），Windows/Mac 双平台 artifact

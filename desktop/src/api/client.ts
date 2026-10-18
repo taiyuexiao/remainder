@@ -6,8 +6,47 @@ export const API_BASE = API;
 /** 联机共享 token（非回环节点必填） */
 const teamToken = () => localStorage.getItem('team-token') ?? '';
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  email: string | null;
+  role: 'owner' | 'admin' | 'member';
+  must_change_password?: boolean;
+}
+
+const ACCESS_TOKEN_KEY = 'auth-access-token';
+const REFRESH_TOKEN_KEY = 'auth-refresh-token';
+const AUTH_USER_KEY = 'auth-user';
+
+export function setAuthSession(session: {
+  user: AuthUser;
+  accessToken: string;
+  refreshToken: string;
+}) {
+  localStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(session.user));
+  localStorage.setItem('user-name', session.user.username);
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  localStorage.removeItem('user-name');
+}
+
+export function currentAuthUser(): AuthUser | null {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null') as AuthUser | null;
+  } catch {
+    return null;
+  }
+}
+
 /** 当前用户名（M24 团队身份，LAN 信任制） */
-export const currentUserName = () => localStorage.getItem('user-name')?.trim() || '';
+export const currentUserName = () =>
+  currentAuthUser()?.username || localStorage.getItem('user-name')?.trim() || '';
 
 export type TaskType = 'main' | 'side' | 'follow' | 'idea';
 export type ProjectType = 'main' | 'side' | 'follow';
@@ -217,6 +256,8 @@ export interface TaskRangeData {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const token = teamToken();
   if (token) headers['x-team-token'] = token;
   const user = currentUserName();
@@ -229,6 +270,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await r.json().catch(() => ({}));
     throw new Error((body as { error?: string }).error ?? `HTTP ${r.status}`);
   }
+  if (r.status === 204) return undefined as T;
   return r.json() as Promise<T>;
 }
 
@@ -241,6 +283,27 @@ function qsOf(q?: Record<string, string | undefined>) {
 
 export const api = {
   health: () => req<{ status: string }>('/api/health'),
+  register: (b: { username: string; email?: string; password: string; inviteCode?: string }) =>
+    req<{ id: string; username: string; role: AuthUser['role'] }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(b),
+    }),
+  login: (b: { identifier: string; password: string }) =>
+    req<{ user: AuthUser; accessToken: string; refreshToken: string; expiresAt: string }>(
+      '/api/auth/login',
+      { method: 'POST', body: JSON.stringify(b) },
+    ),
+  refresh: (refreshToken: string) =>
+    req<{ user: AuthUser; accessToken: string; refreshToken: string; expiresAt: string }>(
+      '/api/auth/refresh',
+      { method: 'POST', body: JSON.stringify({ refreshToken }) },
+    ),
+  logout: (refreshToken: string | null) =>
+    req<void>('/api/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
+  me: () => req<AuthUser | null>('/api/auth/me'),
   listTasks: (q?: { projectId?: string; type?: string; status?: string; date?: string }) =>
     req<Task[]>(`/api/tasks${qsOf(q)}`),
   today: () => req<TodayView>('/api/tasks/today'),

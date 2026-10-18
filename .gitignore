@@ -17,3 +17,4 @@ dist-package/
 !desktop/src-tauri/icons/**/*.png
 !clipper/icons/**/*.png
 !icon-source.png
+.DS_Store

@@ -4,7 +4,7 @@ export const config = {
   port: Number(process.env.PORT ?? 3210),
   /** 监听地址：默认仅本机回环；联机模式设 HOST=0.0.0.0 */
   host: process.env.HOST ?? '127.0.0.1',
-  /** 联机共享 token：非回环监听时强制校验（x-team-token 头）；回环时免校验 */
+  /** 联机共享 token：迁移期兼容；云端 API 以用户 token 为主 */
   teamToken: process.env.TEAM_TOKEN ?? '',
   smtp: {
     user: process.env.SMTP_USER ?? '',
@@ -19,4 +19,10 @@ export const config = {
     enabled: process.env.LLM_ENABLED === 'true',
   },
   notifyEnabled: process.env.NOTIFY_ENABLED !== 'false',
+  auth: {
+    required: process.env.AUTH_REQUIRED === 'true',
+    secret: process.env.AUTH_SECRET ?? '',
+    bootstrapUsername: process.env.BOOTSTRAP_USERNAME ?? 'spl',
+    bootstrapPassword: process.env.BOOTSTRAP_PASSWORD ?? '',
+  },
 };

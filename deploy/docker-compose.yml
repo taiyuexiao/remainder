@@ -1,0 +1,48 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+    image: remainder-server:local
+    restart: unless-stopped
+    environment:
+      PORT: 3210
+      HOST: 0.0.0.0
+      AUTH_REQUIRED: "true"
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in deploy/.env}
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-spl}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:?set BOOTSTRAP_PASSWORD in deploy/.env}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      TZ: Asia/Shanghai
+    volumes:
+      - remainder-data:/app/server/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3210/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../desktop/dist:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  remainder-data:
+  caddy-data:
+  caddy-config:

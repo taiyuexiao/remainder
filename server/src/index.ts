@@ -27,6 +27,8 @@ import teamRoutes from './routes/teams.js';
 import systemRoutes from './routes/system.js';
 import syncRoutes from './routes/sync.js';
 import chatRoutes from './routes/chat.js';
+import authRoutes from './routes/auth.js';
+import { registerAuthHooks } from './auth/plugin.js';
 import { startScheduler } from './scheduler/index.js';
 
 migrate();
@@ -39,18 +41,7 @@ const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
 await app.register(cors, {
   origin: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-team-token', 'x-user-name'],
-});
-
-// 联机模式：非回环监听时，非本机请求必须带 x-team-token
-app.addHook('onRequest', async (req, reply) => {
-  if (LOOPBACK.has(req.ip)) return; // 本机请求免校验
-  if (!config.teamToken) {
-    return reply.code(503).send({ error: '联机模式未配置 TEAM_TOKEN，拒绝外部请求' });
-  }
-  if (req.headers['x-team-token'] !== config.teamToken) {
-    return reply.code(401).send({ error: '缺少或错误的 x-team-token' });
-  }
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-team-token', 'x-user-name'],
 });
 
 // Chrome 130+ Private Network Access：扩展从公网页面访问 localhost 需此预检头
@@ -81,6 +72,7 @@ app.addContentTypeParser('*', { parseAs: 'string' }, (_req, body, done) => {
 });
 
 await app.register(multipart, { limits: { fileSize: 30 * 1024 * 1024 } });
+await registerAuthHooks(app);
 
 app.get('/api/health', async () => {
   const dbUp = db.prepare('SELECT 1 AS one').get() as { one: number };
@@ -92,6 +84,7 @@ app.get('/api/health', async () => {
   };
 });
 
+await app.register(authRoutes);
 await app.register(taskRoutes);
 await app.register(projectRoutes);
 await app.register(followUpRoutes);
@@ -115,9 +108,6 @@ await app.register(publicationRoutes);
 await app.register(assetRoutes);
 await app.register(teamRoutes);
 await app.register(syncRoutes);
-
-const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1']);
-const isLoopback = (ip?: string) => !ip || LOOPBACK.has(ip);
 
 startScheduler();
 

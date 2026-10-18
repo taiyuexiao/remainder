@@ -64,6 +64,7 @@ M9 的桌宠是「单张立绘 PNG + Canvas 条带扭曲」的伪 Live2D 方案�
 | PowerShell 5.1 `Invoke-WebRequest` 请求流式二进制响应抛 NullReferenceException | PS 5.1 IWR 对 chunked/二进制响应的解析 bug | verify-m12.ps1 二进制请求改用 curl.exe |
 | GitHub raw 下载大文件超时/截断 | 网络慢 | 用 ghfast.top 镜像 + 逐个校验文件大小 |
 | PS 5.1 `Out-File -Encoding utf8` 带 BOM 导致 JSON 断言失败 | BOM 头 | 改用 `[System.IO.File]::WriteAllText` |
+| **2026-10-06** 设置页「唤回桌宠」点击无效（无声失败）；同理桌宠菜单「打开主窗口」、WidgetPage 找主窗口也必挂 | Tauri 2.11 里 `getAllWindows()` 需要 `core:window:allow-get-all-windows` 权限，capabilities/default.json 里没有；`showPet()` 的 promise 拒绝无人接，表现为"点了没反应" | capabilities 补该权限（构建期校验通过即生效）；showPet 加 catch + alert 兜底。注意：capabilities 改动是编译期嵌入，必须重编 .app |
 
 ## 7. 验证记录
 

@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_DIR = join(__dirname, '..', '..', 'data');
-const DB_PATH = join(DB_DIR, 'remainder.db');
+const DB_PATH = process.env.REMAINDER_DB_PATH || join(DB_DIR, 'remainder.db');
 
-mkdirSync(DB_DIR, { recursive: true });
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db: Database.Database = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');

@@ -113,6 +113,8 @@ export function migrate() {
   if ((db.pragma('user_version', { simple: true }) as number) < 17) migrateToV17();
   // v18: reports.type 放开 thinking 日记（M22）
   if ((db.pragma('user_version', { simple: true }) as number) < 18) migrateToV18();
+  // v19: 多用户账号与 owner 隔离（M36）
+  if ((db.pragma('user_version', { simple: true }) as number) < 19) migrateToV19();
 }
 
 /**
@@ -583,4 +585,109 @@ function migrateToV18() {
   }
   db.pragma('foreign_keys = ON');
   db.pragma('user_version = 18');
+}
+
+/** v19 迁移（M36）：多用户账号、session/invite/API key、同步变更和 owner 隔离字段。
+ * 现有单人库的 owner_user_id 默认归首个管理员 u_spl；后续迁移模块再补全查询隔离。
+ */
+function migrateToV19() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      email TEXT UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('owner','admin','member')) DEFAULT 'member',
+      must_change_password INTEGER NOT NULL DEFAULT 0,
+      disabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      refresh_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL,
+      user_agent TEXT DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS invites (
+      id TEXT PRIMARY KEY,
+      code_hash TEXT NOT NULL UNIQUE,
+      created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      prefix TEXT NOT NULL UNIQUE,
+      key_hash TEXT NOT NULL,
+      scopes TEXT DEFAULT 'read',
+      revoked_at TEXT,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS spaces (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('personal','team')) DEFAULT 'personal',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS space_members (
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('owner','admin','member','viewer')) DEFAULT 'member',
+      PRIMARY KEY(space_id,user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK(operation IN ('create','update','delete')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      payload_hash TEXT DEFAULT '',
+      updated_by TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_changes_user ON sync_changes(user_id, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_changes_entity_rev ON sync_changes(user_id,entity_type,entity_id,revision);
+  `);
+
+  const ownerTables = [
+    'tasks','projects','inbox','documents','doc_folders','clips','reports',
+    'canvas_boards','conversations','agent_actions','agent_runs'
+  ];
+  for (const table of ownerTables) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'owner_user_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT 'u_spl'`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_owner ON ${table}(owner_user_id)`);
+  }
+
+  const ts = new Date().toISOString();
+  db.prepare(
+    `INSERT OR IGNORE INTO users (id,username,email,password_hash,role,must_change_password,disabled,created_at,updated_at)
+     VALUES ('u_spl','spl',NULL,'!pending!','owner',0,0,?,?)`,
+  ).run(ts, ts);
+  db.prepare(
+    `INSERT OR IGNORE INTO spaces (id,owner_user_id,name,kind,created_at) VALUES ('space_personal','u_spl','个人空间','personal',?)`,
+  ).run(ts);
+  db.prepare(
+    `INSERT OR IGNORE INTO space_members (space_id,user_id,role) VALUES ('space_personal','u_spl','owner')`,
+  ).run();
+  db.pragma('user_version = 19');
 }
