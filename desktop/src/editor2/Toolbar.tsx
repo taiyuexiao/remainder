@@ -1,7 +1,7 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import type { Editor } from '@tiptap/core'
 import { Dropdown } from './Dropdown'
-import { ToolbarBtn, ColorPanel } from './ToolbarBtns'
+import { ToolbarBtn, FontColorPanel, HighlightPanel } from './ToolbarBtns'
 import { getVisibleHeadingLevels } from './headingLevels'
 import { keyHint } from './shortcuts'
 import { pickAndInsertImage } from './slashItems'
@@ -29,10 +29,56 @@ export function currentBlockLabel(editor: Editor): string {
 /** 顶部工具栏（对齐飞书：无字号概念；样式下拉渐进；评论位；合并颜色面板；表格单元格增强） */
 export function Toolbar({ editor, onAutoFormat }: { editor: Editor; onAutoFormat?: () => void }) {
   const [, force] = useReducer((x: number) => x + 1, 0)
+  const barRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     editor.on('transaction', force)
     return () => { editor.off('transaction', force) }
   }, [editor])
+
+  // M41：窄窗口下按钮溢出 → 按住左键横向拖动滚动；拖动后拦截紧跟的误触 click
+  useEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    let dragging = false
+    let moved = false
+    let lastX = 0
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      dragging = true
+      moved = false
+      lastX = e.clientX
+    }
+    const onMove = (e: MouseEvent) => {
+      if (!dragging) return
+      const dx = e.clientX - lastX
+      if (Math.abs(dx) <= 2) return
+      moved = true
+      el.classList.add('fe-toolbar-dragging')
+      el.scrollLeft -= dx
+      lastX = e.clientX
+      e.preventDefault()
+    }
+    const onUp = () => {
+      dragging = false
+      el.classList.remove('fe-toolbar-dragging')
+    }
+    const onClickCapture = (e: MouseEvent) => {
+      if (!moved) return
+      moved = false
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    el.addEventListener('mousedown', onDown)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    el.addEventListener('click', onClickCapture, true)
+    return () => {
+      el.removeEventListener('mousedown', onDown)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      el.removeEventListener('click', onClickCapture, true)
+    }
+  }, [])
 
   const c = () => editor.chain().focus()
   const levels = getVisibleHeadingLevels(editor.state.doc)
@@ -49,7 +95,7 @@ export function Toolbar({ editor, onAutoFormat }: { editor: Editor; onAutoFormat
   }
 
   return (
-    <div className="fe-toolbar">
+    <div className="fe-toolbar" ref={barRef}>
       <ToolbarBtn icon={<I.IconUndo size={17} />} tip={`撤销 ${keyHint('⌘Z', 'Ctrl+Z')}`} onClick={() => c().undo().run()} dim={!editor.can().undo()} />
       <ToolbarBtn icon={<I.IconRedo size={17} />} tip={`重做 ${keyHint('⌘⇧Z', 'Ctrl+Y')}`} onClick={() => c().redo().run()} dim={!editor.can().redo()} />
 
@@ -139,11 +185,24 @@ export function Toolbar({ editor, onAutoFormat }: { editor: Editor; onAutoFormat
       <ToolbarBtn icon={<I.IconStrike size={15} />} tip={`删除线 ${keyHint('⌘⇧X', 'Ctrl+Shift+X')}`} on={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
       <ToolbarBtn icon={<I.IconCode size={15} />} tip={`行内代码 ${keyHint('Ctrl+⌘C', 'Ctrl+Shift+C')}`} on={editor.isActive('code')} onClick={() => c().toggleCode().run()} />
 
-      {/* 颜色（字体颜色 + 背景色 合并面板） */}
+      {/* 字体颜色 / 背景填充（M40 拆分：各自独立按钮 + 当前面板；按钮下方色条显示当前颜色） */}
       <Dropdown button={({ open }) => (
-        <ToolbarBtn icon={<><I.IconFontColor size={15} /><I.IconChevronDown size={10} /></>} tip={`颜色 ${keyHint('⌘⌥H', 'Ctrl+Alt+H')}`} on={open} />
+        <ToolbarBtn
+          icon={<span className="fe-color-btn"><I.IconFontColor size={14} /><span className="fe-color-bar" style={{ background: editor.getAttributes('textStyle').color || 'var(--text-1)' }} /><I.IconChevronDown size={8} className="fe-color-arrow" /></span>}
+          tip={`字体颜色 ${keyHint('⌘⌥H', 'Ctrl+Alt+H')}`}
+          on={open}
+        />
       )}>
-        {(close) => <ColorPanel editor={editor} onChange={() => { force(); close() }} />}
+        {(close) => <FontColorPanel editor={editor} onChange={() => { force(); close() }} />}
+      </Dropdown>
+      <Dropdown button={({ open }) => (
+        <ToolbarBtn
+          icon={<span className="fe-color-btn"><I.IconHighlight size={14} /><span className="fe-color-bar" style={{ background: editor.getAttributes('highlight').color || 'var(--text-4)' }} /><I.IconChevronDown size={8} className="fe-color-arrow" /></span>}
+          tip="背景填充"
+          on={open || editor.isActive('highlight')}
+        />
+      )}>
+        {(close) => <HighlightPanel editor={editor} onChange={() => { force(); close() }} />}
       </Dropdown>
 
       <ToolbarBtn

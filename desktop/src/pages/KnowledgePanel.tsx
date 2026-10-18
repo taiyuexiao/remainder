@@ -124,7 +124,7 @@ export default function KnowledgePanel({
           {layerMeta.icon} {layerMeta.label}
         </h2>
         <input
-          className="w-56 rounded-lg bg-slate-100 px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          className="w-56 rounded-lg bg-slate-100 px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
           placeholder="搜索标题/正文/标签…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -137,7 +137,7 @@ export default function KnowledgePanel({
             setFormOwners([]);
             setCreating(true);
           }}
-          className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+          className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
         >
           + 新建条目
         </button>
@@ -159,7 +159,7 @@ export default function KnowledgePanel({
               <div
                 key={it.id}
                 onClick={() => openDetail(it.id)}
-                className="rounded-xl bg-white border border-slate-200 px-4 py-3 cursor-pointer hover:shadow-md hover:border-indigo-200 transition-all"
+                className="rounded-xl bg-white border border-slate-200 px-4 py-3 cursor-pointer hover:shadow-md hover:border-[var(--brand-light)] transition-all"
               >
                 <div className="flex items-center gap-2">
                   <span
@@ -215,7 +215,7 @@ export default function KnowledgePanel({
                   key={t}
                   onClick={() => setForm({ ...form, type: t })}
                   className={`rounded-lg px-2 py-1 text-xs ${
-                    form.type === t ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    form.type === t ? 'bg-[var(--brand)] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   {KNOWLEDGE_TYPE_LABEL[t].icon} {KNOWLEDGE_TYPE_LABEL[t].label}
@@ -224,13 +224,13 @@ export default function KnowledgePanel({
             </div>
             <input
               autoFocus
-              className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
               placeholder="标题"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
             <textarea
-              className="w-full h-32 rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+              className="w-full h-32 rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)] resize-none"
               placeholder="正文（Markdown 自由格式；分享类必填一句「为什么值得看」）"
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
@@ -249,7 +249,7 @@ export default function KnowledgePanel({
                     })
                   }
                   className={`rounded-full px-2 py-0.5 text-[11px] ${
-                    form.channels.includes(c) ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'
+                    form.channels.includes(c) ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'bg-slate-100 text-slate-500'
                   }`}
                 >
                   #{c}
@@ -315,7 +315,7 @@ export default function KnowledgePanel({
               <button
                 onClick={submitCreate}
                 disabled={!form.title.trim()}
-                className="rounded-lg bg-indigo-600 text-white text-xs px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+                className="rounded-lg bg-[var(--brand)] text-white text-xs px-4 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
               >
                 创建
               </button>
@@ -367,7 +367,7 @@ export default function KnowledgePanel({
                 {parseArr(detail.channels).map((c) => <span key={c} className="rounded bg-slate-100 px-1.5">#{c}</span>)}
               </div>
               {detail.source_url && (
-                <a href={detail.source_url} target="_blank" rel="noopener" className="text-xs text-indigo-500 hover:underline break-all">
+                <a href={detail.source_url} target="_blank" rel="noopener" className="text-xs text-[var(--brand)] hover:underline break-all">
                   来源：{detail.source_url}
                 </a>
               )}
@@ -432,7 +432,7 @@ export default function KnowledgePanel({
                         <span>{c.created_at.slice(0, 10)}</span>
                         <span className="flex-1" />
                         <button
-                          className="hover:text-indigo-600"
+                          className="hover:text-[var(--brand)]"
                           onClick={() => { setReplyTo(c); setCommentInput(`@${c.author} `); }}
                         >
                           回复
@@ -490,7 +490,7 @@ export default function KnowledgePanel({
                 )}
                 <div className="flex gap-2">
                   <textarea
-                    className="flex-1 h-14 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+                    className="flex-1 h-14 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)] resize-none"
                     placeholder="写下评论…（@同事 会收到必达通知）"
                     value={commentInput}
                     onChange={(e) => setCommentInput(e.target.value)}
@@ -503,7 +503,7 @@ export default function KnowledgePanel({
                       setReplyTo(null);
                       setComments(await api.listComments(detail.id));
                     }}
-                    className="self-end rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+                    className="self-end rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
                   >
                     发送
                   </button>
@@ -513,7 +513,7 @@ export default function KnowledgePanel({
             <div className="px-5 py-3 border-t border-slate-100 flex items-center gap-2">
               <button
                 onClick={() => setPublishing(true)}
-                className="rounded-lg bg-indigo-50 text-indigo-600 text-xs px-3 py-1.5 hover:bg-indigo-100"
+                className="rounded-lg bg-[var(--brand-light)] text-[var(--brand)] text-xs px-3 py-1.5 hover:bg-[var(--brand-light)]"
               >
                 📤 发布
               </button>
@@ -617,7 +617,7 @@ function PublishModal({
                   setBusy(false);
                 }
               }}
-              className="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors disabled:opacity-50"
+              className="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:border-[var(--brand)] hover:bg-[var(--brand-light)]/50 transition-colors disabled:opacity-50"
             >
               <span className="text-[13px] text-slate-700">{t.name}</span>
               <span className="block text-[10px] text-slate-400">{t.member_count} 名成员</span>

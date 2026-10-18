@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useImeGuard } from '../ime';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TaskList from '@tiptap/extension-task-list';
@@ -58,6 +59,7 @@ export default function ReportsPage() {
   const [lockVisible, setLockVisible] = useState(false);
   const [pwd, setPwd] = useState('');
   const [pwdError, setPwdError] = useState(false);
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
 
   const enterThinking = () => {
     if (sessionStorage.getItem(THINKING_UNLOCK_KEY) === '1') {
@@ -175,7 +177,7 @@ export default function ReportsPage() {
               className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
                 pwdError
                   ? 'border-red-300 focus:ring-red-300'
-                  : 'border-slate-300 focus:ring-indigo-300'
+                  : 'border-slate-300 focus:ring-[rgba(51,112,255,0.35)]'
               }`}
               placeholder="密码"
               value={pwd}
@@ -183,8 +185,9 @@ export default function ReportsPage() {
                 setPwd(e.target.value);
                 setPwdError(false);
               }}
+              {...imeProps}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
+                if (imeGuard(e)) return;
                 if (e.key === 'Enter') tryUnlock();
                 if (e.key === 'Escape') setLockVisible(false);
               }}
@@ -199,7 +202,7 @@ export default function ReportsPage() {
               </button>
               <button
                 onClick={tryUnlock}
-                className="rounded-lg bg-indigo-600 text-white px-4 py-1.5 text-sm hover:bg-indigo-700"
+                className="rounded-lg bg-[var(--brand)] text-white px-4 py-1.5 text-sm hover:bg-[var(--brand-hover)]"
               >
                 进入
               </button>
@@ -280,7 +283,7 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
       {/* 左侧历史列表 */}
       <aside className="w-56 shrink-0 bg-white border-r border-slate-200 flex flex-col">
         <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-          <button onClick={onBack} className="text-xs text-slate-500 hover:text-indigo-600 flex items-center gap-1">
+          <button onClick={onBack} className="text-xs text-slate-500 hover:text-[var(--brand)] flex items-center gap-1">
             ← 返回
           </button>
           <div className="flex items-center gap-1.5">
@@ -296,7 +299,7 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
             )}
             <button
               onClick={openToday}
-              className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
+              className="text-xs rounded-md bg-[var(--brand)] text-white px-2.5 py-1.5 hover:bg-[var(--brand-hover)]"
             >
               新建
             </button>
@@ -317,7 +320,7 @@ function ReportTypePage({ type, onBack }: { type: 'daily' | 'weekly' | 'monthly'
                 onClick={() => setSelectedId(r.id)}
                 className={`mx-2 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-center justify-between ${
                   selectedId === r.id
-                    ? 'bg-indigo-50 text-indigo-700'
+                    ? 'bg-[var(--brand-light)] text-[var(--brand)]'
                     : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
@@ -518,7 +521,7 @@ function ReportEditorInner({ report, onChange }: { report: Report; onChange: () 
           <span>{saving ? '保存中…' : '已自动保存'}</span>
           <button
             onClick={saveNow}
-            className="rounded-md bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700"
+            className="rounded-md bg-[var(--brand)] text-white px-3 py-1.5 text-xs hover:bg-[var(--brand-hover)]"
           >
             保存
           </button>
@@ -556,7 +559,7 @@ function Toolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
       onClick={onClick}
       title={title}
       className={`px-2 py-1 rounded text-sm transition-colors ${
-        active ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+        active ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'text-slate-600 hover:bg-slate-100'
       }`}
     >
       {children}

@@ -66,7 +66,7 @@ export default function WorkLibraryPanel({ team }: { team: Team }) {
       <div key={p.id}>
         <div
           className={`group flex items-center gap-1 pr-2 py-1.5 cursor-pointer text-[13px] rounded-lg ${
-            selected === p.id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700 hover:bg-slate-100'
+            selected === p.id ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium' : 'text-slate-700 hover:bg-slate-100'
           }`}
           style={{ paddingLeft: `${10 + depth * 16}px` }}
           onClick={() => setSelected(p.id)}
@@ -91,12 +91,12 @@ export default function WorkLibraryPanel({ team }: { team: Team }) {
           <span className="hidden group-hover:flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             <button
               title="新建子项目"
-              className="text-[11px] text-slate-400 hover:text-indigo-600"
+              className="text-[11px] text-slate-400 hover:text-[var(--brand)]"
               onClick={() => { setCreating({ parentId: p.id }); setExpanded((prev) => new Set(prev).add(p.id)); }}
             >
               ＋
             </button>
-            <button title="重命名/@负责人" className="text-[11px] text-slate-400 hover:text-indigo-600" onClick={() => setRenaming(p)}>✎</button>
+            <button title="重命名/@负责人" className="text-[11px] text-slate-400 hover:text-[var(--brand)]" onClick={() => setRenaming(p)}>✎</button>
             <button title="删除" className="text-[11px] text-slate-400 hover:text-red-500" onClick={() => removeProject(p)}>🗑</button>
           </span>
         </div>
@@ -115,7 +115,7 @@ export default function WorkLibraryPanel({ team }: { team: Team }) {
           <span className="text-xs font-medium text-slate-500 flex-1">项目</span>
           <button
             onClick={() => setCreating({ parentId: null })}
-            className="text-[11px] text-indigo-600 hover:bg-indigo-50 rounded px-1.5 py-0.5"
+            className="text-[11px] text-[var(--brand)] hover:bg-[var(--brand-light)] rounded px-1.5 py-0.5"
           >
             ＋ 新建项目
           </button>
@@ -123,7 +123,7 @@ export default function WorkLibraryPanel({ team }: { team: Team }) {
         <div className="flex-1 overflow-y-auto py-1.5 px-1.5">
           <div
             className={`px-2.5 py-1.5 text-[13px] rounded-lg cursor-pointer ${
-              selected === 'all' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700 hover:bg-slate-100'
+              selected === 'all' ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium' : 'text-slate-700 hover:bg-slate-100'
             }`}
             onClick={() => setSelected('all')}
           >
@@ -132,7 +132,7 @@ export default function WorkLibraryPanel({ team }: { team: Team }) {
           {roots.map((p) => renderRow(p, 0))}
           <div
             className={`px-2.5 py-1.5 text-[13px] rounded-lg cursor-pointer ${
-              selected === null ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-400 hover:bg-slate-100'
+              selected === null ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium' : 'text-slate-400 hover:bg-slate-100'
             }`}
             onClick={() => setSelected(null)}
           >
@@ -219,7 +219,7 @@ function ProjectFormModal({
         </h3>
         <input
           autoFocus
-          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
           placeholder="项目名（如：评测平台建设）"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -252,7 +252,7 @@ function ProjectFormModal({
           <button
             disabled={!name.trim()}
             onClick={submit}
-            className="rounded-lg bg-indigo-600 text-white text-xs px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+            className="rounded-lg bg-[var(--brand)] text-white text-xs px-4 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
           >
             {existing ? '保存' : '创建'}
           </button>

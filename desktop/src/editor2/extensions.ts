@@ -32,6 +32,7 @@ import { FeishuBlockInputRules } from './blockInputRules'
 import { FeIndent } from './indent'
 import { FeishuShortcuts } from './shortcuts'
 import { BlockSelect } from './blockSelect'
+import { ListStartSync } from './listStart'
 import { markdownToTiptapJSON, looksLikeMarkdown } from './mdPaste'
 import { FontSizeAttr } from './textStyle'
 import { parseTableText, rowsToTableHtml } from './tableDetect'
@@ -110,6 +111,7 @@ export function buildExtensions(): AnyExtension[] {
     FeFindReplace,
     // ---- 飞书交互扩展 ----
     FeIndent,
+    ListStartSync,
     SlashMenuExtension,
     MentionSuggestion,
     FeishuShortcuts,

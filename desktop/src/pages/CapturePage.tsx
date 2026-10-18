@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { api } from '../api/client';
+import { useImeGuard } from '../ime';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
 const SIZE_KEY = 'capture-size';
@@ -23,6 +24,7 @@ export default function CapturePage() {
   const [clipMsg, setClipMsg] = useState('');
   const [big, setBig] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { guard, compositionProps } = useImeGuard();
 
   // 尺寸记忆：启动时恢复上次的窗口大小
   useEffect(() => {
@@ -144,8 +146,9 @@ export default function CapturePage() {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // macOS 中文输入法：组词期间的回车是确认候选词，不能触发提交/关闭
-    if (e.nativeEvent.isComposing) return;
+    // macOS 中文输入法：组词期间的回车是确认候选词，不能触发提交/关闭。
+    // WKWebView 确认候选词那条 keydown 的 isComposing 已是 false，需 guard 兜底
+    if (guard(e)) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
@@ -163,7 +166,7 @@ export default function CapturePage() {
   };
 
   return (
-    <div className="h-screen w-screen p-2 select-none relative" onKeyDown={onKeyDown}>
+    <div className="h-screen w-screen p-2 select-none relative" onKeyDown={onKeyDown} {...compositionProps}>
       <div className="h-full rounded-2xl bg-slate-900/85 backdrop-blur-xl border border-white/15 shadow-2xl flex flex-col overflow-hidden">
         <div
           className="px-4 pt-3 pb-2 flex items-center justify-between cursor-move"
@@ -185,14 +188,14 @@ export default function CapturePage() {
         </div>
         <textarea
           ref={inputRef}
-          className="flex-1 mx-4 mb-2 rounded-lg bg-white/10 text-white text-sm px-3 py-2 resize-none placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="flex-1 mx-4 mb-2 rounded-lg bg-white/10 text-white text-sm px-3 py-2 resize-none placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[var(--brand)]"
           placeholder="有什么想法？写下来…"
           value={content}
           onChange={(e) => setContent(e.target.value)}
         />
         <div className="px-4 pb-3 flex items-center gap-2">
           <input
-            className="w-40 rounded-lg bg-white/10 text-white text-xs px-2.5 py-1.5 placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            className="w-40 rounded-lg bg-white/10 text-white text-xs px-2.5 py-1.5 placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[var(--brand)]"
             placeholder="标签（可选）"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
@@ -213,7 +216,7 @@ export default function CapturePage() {
           </button>
           <button
             onClick={save}
-            className="rounded-lg bg-indigo-500 text-white text-xs px-3.5 py-1.5 hover:bg-indigo-400"
+            className="rounded-lg bg-[var(--brand)] text-white text-xs px-3.5 py-1.5 hover:bg-[var(--brand-hover)]"
           >
             存入 <span className="text-white/60">⏎</span>
           </button>

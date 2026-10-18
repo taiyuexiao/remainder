@@ -55,12 +55,12 @@ export function MenuSep() {
 }
 
 /**
- * 合并颜色面板（对齐飞书「字体颜色 + 背景色」一个面板，含恢复默认）
+ * 字体颜色面板（M40 拆分：与背景填充各自独立入口，不再共用一个二级面板）
  */
-export function ColorPanel({ editor, onChange }: { editor: Editor; onChange?: () => void }) {
+export function FontColorPanel({ editor, onChange }: { editor: Editor; onChange?: () => void }) {
   return (
     <div className="fe-picker">
-      <div className="fe-picker-title">文字颜色</div>
+      <div className="fe-picker-title">字体颜色</div>
       <div className="fe-color-grid">
         {TEXT_COLORS.map((s) => (
           <button
@@ -79,7 +79,23 @@ export function ColorPanel({ editor, onChange }: { editor: Editor; onChange?: ()
           </button>
         ))}
       </div>
-      <div className="fe-picker-title">背景颜色</div>
+      <div
+        className="fe-picker-foot"
+        onClick={() => { editor.chain().focus().unsetColor().run(); onChange?.() }}
+      >
+        恢复默认
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 背景填充面板（M40 拆分）
+ */
+export function HighlightPanel({ editor, onChange }: { editor: Editor; onChange?: () => void }) {
+  return (
+    <div className="fe-picker">
+      <div className="fe-picker-title">背景填充</div>
       <div className="fe-color-grid">
         {HIGHLIGHT_COLORS.map((s) => (
           <button
@@ -94,9 +110,9 @@ export function ColorPanel({ editor, onChange }: { editor: Editor; onChange?: ()
       </div>
       <div
         className="fe-picker-foot"
-        onClick={() => { editor.chain().focus().unsetColor().unsetHighlight().run(); onChange?.() }}
+        onClick={() => { editor.chain().focus().unsetHighlight().run(); onChange?.() }}
       >
-        恢复默认
+        清除填充
       </div>
     </div>
   )

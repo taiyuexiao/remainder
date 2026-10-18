@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Conversation, type ChatMessage, type AgentActionItem, type AgentRun } from '../api/client';
 import { requestOpenDoc, requestNav } from '../navBus';
+import { useImeGuard } from '../ime';
+import { IconBot, IconPlus, IconSend, IconTrash } from '../components/NavIcons';
 
 /**
  * AI 助手页（M19）：GPT/豆包式布局 —— 左侧会话历史 + 主对话区
@@ -19,6 +21,7 @@ export default function ChatPage() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [undoneIds, setUndoneIds] = useState<Set<string>>(new Set());
@@ -176,9 +179,10 @@ export default function ChatPage() {
         <div className="p-3 border-b border-slate-100">
           <button
             onClick={newConv}
-            className="w-full rounded-lg bg-indigo-600 text-white text-sm py-2 hover:bg-indigo-700 transition-colors"
+            className="w-full rounded-lg border border-[var(--border)] bg-white text-[var(--text-1)] text-[13px] py-1.5 hover:bg-[var(--bg-2)] transition-colors flex items-center justify-center gap-1.5"
           >
-            + 新对话
+            <IconPlus size={13} />
+            新对话
           </button>
         </div>
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
@@ -190,11 +194,11 @@ export default function ChatPage() {
               key={c.id}
               onClick={() => openConv(c.id)}
               className={`group rounded-lg px-3 py-2 cursor-pointer transition-colors ${
-                currentId === c.id ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                currentId === c.id ? 'bg-[var(--brand-light)]' : 'hover:bg-slate-50'
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-medium truncate flex-1 ${currentId === c.id ? 'text-indigo-700' : 'text-slate-700'}`}>
+                <span className={`text-xs font-medium truncate flex-1 ${currentId === c.id ? 'text-[var(--brand)]' : 'text-slate-700'}`}>
                   {c.title}
                 </span>
                 <button
@@ -202,10 +206,10 @@ export default function ChatPage() {
                     e.stopPropagation();
                     removeConv(c.id);
                   }}
-                  className="hidden group-hover:block text-slate-300 hover:text-red-400 text-xs"
+                  className="hidden group-hover:flex text-slate-300 hover:text-red-400"
                   title="删除会话"
                 >
-                  🗑
+                  <IconTrash size={12} />
                 </button>
               </div>
               {c.last_message && (
@@ -224,7 +228,7 @@ export default function ChatPage() {
         <div ref={threadRef} className="flex-1 overflow-y-auto px-6 py-6">
           {!currentId && messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center text-2xl">🤖</div>
+              <div className="w-14 h-14 rounded-2xl bg-[var(--brand-light)] text-[var(--brand)] flex items-center justify-center"><IconBot size={26} /></div>
               <div>
                 <p className="text-sm font-medium text-slate-700">有什么可以帮你？</p>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
@@ -243,7 +247,7 @@ export default function ChatPage() {
                     <div
                       className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                         m.role === 'user'
-                          ? 'bg-indigo-600 text-white rounded-br-md'
+                          ? 'bg-[var(--brand)] text-white rounded-br-md'
                           : 'bg-white border border-slate-200 text-slate-700 rounded-bl-md shadow-sm'
                       }`}
                     >
@@ -256,15 +260,15 @@ export default function ChatPage() {
                           // A4 计划卡片：待确认的计划，[执行] [取消]
                           if (typeof a !== 'string' && a.tool === 'plan') {
                             return (
-                              <div key={i} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
-                                <div className="text-xs text-indigo-700 whitespace-pre-wrap leading-relaxed">{a.text}</div>
+                              <div key={i} className="rounded-lg border border-[var(--brand-light)] bg-[var(--brand-light)] px-3 py-2">
+                                <div className="text-xs text-[var(--brand)] whitespace-pre-wrap leading-relaxed">{a.text}</div>
                                 <div className="mt-2 flex items-center gap-2">
                                   {a.planStatus === 'pending' && (
                                     <>
                                       <button
                                         disabled={sending}
                                         onClick={() => send({ content: lastUserMsgBefore(m.id), executePlan: a.text, planMsgId: m.id })}
-                                        className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1 hover:bg-indigo-700 disabled:opacity-40"
+                                        className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1 hover:bg-[var(--brand-hover)] disabled:opacity-40"
                                       >
                                         ▶ 执行计划
                                       </button>
@@ -323,7 +327,7 @@ export default function ChatPage() {
                       {m.role === 'assistant' && !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && (
                         <button
                           onClick={() => openTrace(m.id)}
-                          className="ml-2 text-slate-300 hover:text-indigo-400 underline underline-offset-2"
+                          className="ml-2 text-slate-300 hover:text-[rgba(51,112,255,0.6)] underline underline-offset-2"
                         >
                           轨迹
                         </button>
@@ -346,15 +350,18 @@ export default function ChatPage() {
         {/* 输入区 */}
         <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4">
           <div className="max-w-3xl mx-auto">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all flex items-end gap-2 p-2">
+            <div className="rounded-2xl border border-[var(--border)] bg-white shadow-sm focus-within:border-[var(--brand)] transition-colors flex items-end gap-1.5 p-1.5 pl-3">
               <textarea
-                className="flex-1 bg-transparent px-2 py-1.5 text-sm resize-none focus:outline-none placeholder:text-slate-400"
+                className="flex-1 bg-transparent px-1 py-1.5 text-sm resize-none focus:outline-none placeholder:text-slate-400"
                 rows={Math.min(4, input.split('\n').length + (input.length > 40 ? 1 : 0) || 1)}
                 placeholder="输入消息，或直接用自然语言安排任务…（Enter 发送，Shift+Enter 换行）"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                {...imeProps}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  // macOS 中文输入法：确认候选词的回车不上屏发送（含 WebKit compositionend 先发的特例）
+                  if (imeGuard(e)) return;
+                  if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     send();
                   }
@@ -363,9 +370,10 @@ export default function ChatPage() {
               <button
                 onClick={() => send()}
                 disabled={!input.trim() || sending}
-                className="rounded-xl bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-700 disabled:opacity-40 transition-colors shrink-0"
+                title="发送 (Enter)"
+                className="w-9 h-9 rounded-xl bg-[var(--bg-2)] text-[var(--text-1)] hover:bg-[var(--bg-1)] disabled:opacity-35 transition-colors shrink-0 flex items-center justify-center"
               >
-                发送
+                <IconSend size={17} />
               </button>
             </div>
             {/* A4 计划模式开关：先出执行计划，确认后再动手 */}
@@ -374,7 +382,7 @@ export default function ChatPage() {
                 onClick={() => setPlanMode((v) => !v)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   planMode
-                    ? 'bg-indigo-100 border-indigo-300 text-indigo-600'
+                    ? 'bg-[var(--brand-light)] border-[var(--brand)] text-[var(--brand)]'
                     : 'border-slate-200 text-slate-300 hover:text-slate-400'
                 }`}
                 title="开启后：AI 先给出执行计划，你确认后才真正执行"
@@ -411,7 +419,7 @@ export default function ChatPage() {
                   {r.thought && <p className="text-xs text-slate-600 mb-1.5">💭 {r.thought}</p>}
                   {r.calls.map((c, j) => (
                     <div key={j} className="text-xs mb-1">
-                      <span className="font-mono text-indigo-600">🔧 {c.tool}</span>
+                      <span className="font-mono text-[var(--brand)]">🔧 {c.tool}</span>
                       <span className="text-slate-400">({JSON.stringify(c.params).slice(0, 80)})</span>
                       <div className="text-slate-500 mt-0.5 whitespace-pre-wrap">→ {c.result.slice(0, 200)}</div>
                     </div>

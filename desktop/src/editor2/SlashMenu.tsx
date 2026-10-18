@@ -21,6 +21,13 @@ interface ListProps {
   command: (item: SlashItem) => void
 }
 
+/** 条目图标定色（M40 照搬飞书：类型着色，代码绿 / 分割线橙，其余蓝） */
+const ICON_TONES: Record<string, string> = {
+  代码块: '#34A853',
+  分割线: '#FF8800',
+}
+const DEFAULT_TONE = '#3370FF'
+
 export const SlashMenuList = forwardRef<ListHandle, ListProps>((props, ref) => {
   const [sel, setSel] = useState(0)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -69,7 +76,6 @@ export const SlashMenuList = forwardRef<ListHandle, ListProps>((props, ref) => {
           <span className="fe-slash-icon ai"><I_ai /></span>
           <span className="fe-slash-text">
             <span className="t">AI帮我写</span>
-            <span className="d">写作 · 续写 · 润色 · 翻译 · 总结</span>
           </span>
         </div>
       )}
@@ -87,10 +93,9 @@ export const SlashMenuList = forwardRef<ListHandle, ListProps>((props, ref) => {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => props.command(it)}
               >
-                <span className="fe-slash-icon">{it.icon}</span>
+                <span className="fe-slash-icon" style={{ color: ICON_TONES[it.title] ?? DEFAULT_TONE }}>{it.icon}</span>
                 <span className="fe-slash-text">
                   <span className="t">{it.title}</span>
-                  <span className="d">{it.desc}</span>
                 </span>
               </div>
             )

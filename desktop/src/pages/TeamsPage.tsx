@@ -11,6 +11,7 @@ import {
   type TeamRole,
 } from '../api/client';
 import KnowledgePanel, { LAYERS, type LayerKey } from './KnowledgePanel';
+import { IconClipboardList, IconFile, IconFolder, IconImport, IconMessage, IconPlus, IconUsers, IconZap } from '../components/NavIcons';
 import WorkLibraryPanel from './WorkLibraryPanel';
 
 type Section = LayerKey | 'members' | 'inbox';
@@ -26,7 +27,15 @@ function avatarColor(id: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-/** 👥 团队空间（M24）：团队列表 → 层菜单 → 内容 三栏布局，参考 WPS Comate 团队空间 */
+/** 层菜单图标（M41）：SVG 替换 LAYERS 里的 emoji */
+const LAYER_ICON: Record<LayerKey, JSX.Element> = {
+  intel: <IconZap size={14} />,
+  rfc: <IconMessage size={14} />,
+  exp: <IconFile size={14} />,
+  work: <IconClipboardList size={14} />,
+};
+
+/** 团队空间（M24）：团队列表 → 层菜单 → 内容 三栏布局，参考 WPS Comate 团队空间 */
 export default function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState(() => localStorage.getItem('teams-selected') ?? 'personal');
@@ -70,7 +79,7 @@ export default function TeamsPage() {
       {/* 第一栏：团队列表 */}
       <div className="w-52 shrink-0 border-r border-slate-200 flex flex-col bg-slate-50/60">
         <div className="px-4 py-3 border-b border-slate-200">
-          <h2 className="text-sm font-semibold text-slate-800">👥 团队</h2>
+          <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><IconUsers size={15} />团队</h2>
           <p className="text-[10px] text-slate-400 mt-0.5">每个团队的知识资产相互隔离</p>
         </div>
         <div className="flex-1 overflow-y-auto py-2">
@@ -79,17 +88,17 @@ export default function TeamsPage() {
               key={t.id}
               onClick={() => selectTeam(t.id)}
               className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors ${
-                teamId === t.id ? 'bg-indigo-50' : 'hover:bg-slate-100'
+                teamId === t.id ? 'bg-[var(--brand-light)]' : 'hover:bg-slate-100'
               }`}
             >
               <span
                 className="w-7 h-7 rounded-lg text-white text-xs font-semibold flex items-center justify-center shrink-0"
                 style={{ background: avatarColor(t.id) }}
               >
-                {t.id === 'personal' ? '🏠' : t.name.slice(0, 1)}
+                {t.id === 'personal' ? <IconFolder size={13} /> : t.name.slice(0, 1)}
               </span>
               <span className="flex-1 min-w-0">
-                <span className={`block text-[13px] truncate ${teamId === t.id ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                <span className={`block text-[13px] truncate ${teamId === t.id ? 'text-[var(--brand)] font-medium' : 'text-slate-700'}`}>
                   {t.name}
                 </span>
                 <span className="block text-[10px] text-slate-400">
@@ -102,15 +111,15 @@ export default function TeamsPage() {
         <div className="px-3 py-2.5 border-t border-slate-200 space-y-1.5">
           <button
             onClick={() => setShowCreate(true)}
-            className="w-full rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+            className="w-full rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
           >
-            ＋ 新建团队
+            <span className="inline-flex items-center gap-1"><IconPlus size={12} />新建团队</span>
           </button>
           <button
             onClick={() => setShowJoin(true)}
             className="w-full rounded-lg bg-white border border-slate-200 text-slate-600 text-xs px-3 py-1.5 hover:bg-slate-50"
           >
-            🔑 凭邀请码加入
+            凭邀请码加入
           </button>
         </div>
       </div>
@@ -129,11 +138,11 @@ export default function TeamsPage() {
                 onClick={() => setSection(l.key)}
                 className={`w-full text-left px-4 py-2 text-[13px] flex items-center gap-2 transition-colors ${
                   section === l.key
-                    ? 'bg-indigo-50 text-indigo-700 font-medium border-r-2 border-indigo-500'
+                    ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium border-r-2 border-[var(--brand)]'
                     : 'text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                <span>{l.icon}</span>
+                <span className="flex items-center">{LAYER_ICON[l.key]}</span>
                 <span>{l.label}</span>
               </button>
             ))}
@@ -142,11 +151,11 @@ export default function TeamsPage() {
               onClick={() => setSection('inbox')}
               className={`w-full text-left px-4 py-2 text-[13px] flex items-center gap-2 transition-colors ${
                 section === 'inbox'
-                  ? 'bg-indigo-50 text-indigo-700 font-medium border-r-2 border-indigo-500'
+                  ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium border-r-2 border-[var(--brand)]'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <span>📥</span>
+              <span className="flex items-center"><IconImport size={14} /></span>
               <span className="flex-1">收件箱</span>
               {inboxCount > 0 && (
                 <span className="rounded-full bg-rose-500 text-white text-[10px] px-1.5 py-px">{inboxCount}</span>
@@ -156,11 +165,11 @@ export default function TeamsPage() {
               onClick={() => setSection('members')}
               className={`w-full text-left px-4 py-2 text-[13px] flex items-center gap-2 transition-colors ${
                 section === 'members'
-                  ? 'bg-indigo-50 text-indigo-700 font-medium border-r-2 border-indigo-500'
+                  ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium border-r-2 border-[var(--brand)]'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <span>👤</span>
+              <span className="flex items-center"><IconUsers size={14} /></span>
               <span>成员{isAdmin ? '与设置' : ''}</span>
             </button>
           </nav>
@@ -256,7 +265,7 @@ function MembersPanel({ team, onChanged }: { team: Team; onChanged: () => void }
               </span>
               <span className="text-[13px] text-slate-700 flex-1">
                 {m.user_name}
-                {m.user_name === me && <span className="text-[10px] text-indigo-500 ml-1">（我）</span>}
+                {m.user_name === me && <span className="text-[10px] text-[var(--brand)] ml-1">（我）</span>}
               </span>
               {admin && m.role !== 'owner' ? (
                 <select
@@ -290,7 +299,7 @@ function MembersPanel({ team, onChanged }: { team: Team; onChanged: () => void }
           {admin && !isPersonal && (
             <div className="flex gap-2 mt-3">
               <input
-                className="flex-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                className="flex-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
                 placeholder="输入同事名字直接添加（对方连接本节点后即以该名字访问）"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -302,7 +311,7 @@ function MembersPanel({ team, onChanged }: { team: Team; onChanged: () => void }
                   setNewName('');
                   load();
                 }}
-                className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+                className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
               >
                 添加
               </button>
@@ -361,7 +370,7 @@ function MembersPanel({ team, onChanged }: { team: Team; onChanged: () => void }
                   await api.updateTeam(team.id, { name: editName, description: editDesc });
                   onChanged();
                 }}
-                className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+                className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
               >
                 保存
               </button>
@@ -449,7 +458,7 @@ function InboxPanel({ team, onChanged }: { team: Team; onChanged: () => void }) 
   return (
     <div className="h-full overflow-y-auto bg-slate-50 px-6 py-5">
       <div className="max-w-2xl">
-        <h3 className="text-sm font-semibold text-slate-800 mb-1">📥 收件箱 · {team.name}</h3>
+        <h3 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><IconImport size={14} />收件箱 · {team.name}</h3>
         <p className="text-[11px] text-slate-400 mb-4">其他团队发布过来的条目。发布 ≠ 复制：仅查看不给副本，「同步进本团队」才拉一份可编辑副本（上游更新可一键拉新）。</p>
         {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
         {pubs.length === 0 && <p className="text-center text-sm text-slate-300 pt-16">收件箱是空的</p>}
@@ -485,9 +494,9 @@ function InboxPanel({ team, onChanged }: { team: Team; onChanged: () => void }) 
                     </button>
                     <button
                       onClick={() => act(() => api.syncPublication(p.id))}
-                      className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+                      className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
                     >
-                      📥 同步进本团队
+                      同步进本团队
                     </button>
                     <button
                       onClick={() => act(() => api.ignorePublication(p.id))}
@@ -520,9 +529,9 @@ function InboxPanel({ team, onChanged }: { team: Team; onChanged: () => void }) 
               {(viewing.pub.status === 'pending' || viewing.pub.status === 'viewed') && (
                 <button
                   onClick={() => act(async () => { await api.syncPublication(viewing.pub.id); setViewing(null); })}
-                  className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+                  className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
                 >
-                  📥 同步进本团队
+                  同步进本团队
                 </button>
               )}
             </div>
@@ -542,7 +551,7 @@ function CreateTeamModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <h3 className="text-sm font-semibold">新建团队</h3>
         <input
           autoFocus
-          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
           placeholder="团队名（如：后端一组 / XX项目组）"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -566,7 +575,7 @@ function CreateTeamModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 alert((e as Error).message);
               }
             }}
-            className="rounded-lg bg-indigo-600 text-white text-xs px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+            className="rounded-lg bg-[var(--brand)] text-white text-xs px-4 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
           >
             创建
           </button>
@@ -584,7 +593,7 @@ function JoinTeamModal({ onClose, onJoined }: { onClose: () => void; onJoined: (
         <h3 className="text-sm font-semibold">凭邀请码加入团队</h3>
         <input
           autoFocus
-          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm font-mono tracking-[0.2em] uppercase focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          className="w-full rounded-lg bg-slate-100 px-3 py-2 text-sm font-mono tracking-[0.2em] uppercase focus:outline-none focus:ring-1 focus:ring-[rgba(51,112,255,0.35)]"
           placeholder="8 位邀请码"
           value={token}
           onChange={(e) => setToken(e.target.value)}
@@ -604,7 +613,7 @@ function JoinTeamModal({ onClose, onJoined }: { onClose: () => void; onJoined: (
                 alert((e as Error).message);
               }
             }}
-            className="rounded-lg bg-indigo-600 text-white text-xs px-4 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+            className="rounded-lg bg-[var(--brand)] text-white text-xs px-4 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
           >
             加入
           </button>

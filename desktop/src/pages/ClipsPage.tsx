@@ -118,7 +118,7 @@ export default function ClipsPage() {
                 onClick={() => setSelectedId(c.id)}
                 className={`rounded-xl bg-white border p-3.5 cursor-pointer transition-colors ${
                   selectedId === c.id
-                    ? 'border-indigo-300 shadow-sm'
+                    ? 'border-[var(--brand)] shadow-sm'
                     : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
@@ -174,7 +174,7 @@ export default function ClipsPage() {
                   href={selected.url}
                   target="_blank"
                   rel="noopener"
-                  className="block text-xs text-indigo-500 hover:underline truncate"
+                  className="block text-xs text-[var(--brand)] hover:underline truncate"
                 >
                   {selected.url}
                 </a>
@@ -183,7 +183,7 @@ export default function ClipsPage() {
                 <button
                   onClick={() => convert(selected.id)}
                   disabled={selected.status === 'converted'}
-                  className="flex-1 rounded-lg bg-indigo-600 text-white py-1.5 text-sm hover:bg-indigo-700 disabled:opacity-40"
+                  className="flex-1 rounded-lg bg-[var(--brand)] text-white py-1.5 text-sm hover:bg-[var(--brand-hover)] disabled:opacity-40"
                 >
                   {selected.status === 'converted' ? '已转文档' : '转为文档'}
                 </button>

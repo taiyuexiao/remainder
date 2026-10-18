@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
-import { api, type NotificationItem } from './api/client';
+import { useEffect, useState, type ReactNode } from 'react';
+import { api, clearAuthSession, currentAuthUser, type NotificationItem } from './api/client';
 import { BackgroundLayer } from './components/BackgroundLayer';
+import {
+  IconSun, IconBot, IconCalendarNav, IconMap, IconClipboardList, IconMessage, IconLightbulb,
+  IconPaperclip, IconFile, IconUsers, IconBarChart, IconPalette, IconSettings,
+} from './components/NavIcons';
 import TasksPage from './pages/TasksPage';
 import CalendarPage from './pages/CalendarPage';
 import FollowUpsPage from './pages/FollowUpsPage';
@@ -14,23 +18,24 @@ import CanvasPage from './pages/CanvasPage';
 import TimelinePage from './pages/TimelinePage';
 import ChatPage from './pages/ChatPage';
 import TeamsPage from './pages/TeamsPage';
+import AuthPage from './pages/AuthPage';
 
 type NavKey = 'today' | 'assistant' | 'calendar' | 'timeline' | 'tasks' | 'follow' | 'inbox' | 'clips' | 'docs' | 'reports' | 'canvas' | 'knowledge' | 'settings';
 
-const NAV: { key: NavKey; label: string; icon: string; hint: string }[] = [
-  { key: 'today', label: '今日', icon: '☀️', hint: '' },
-  { key: 'assistant', label: 'AI 助手', icon: '🤖', hint: '' },
-  { key: 'calendar', label: '日历', icon: '📅', hint: '' },
-  { key: 'timeline', label: '全景', icon: '🗺️', hint: '' },
-  { key: 'tasks', label: '全部任务', icon: '📋', hint: '' },
-  { key: 'follow', label: '跟进', icon: '🤝', hint: '' },
-  { key: 'inbox', label: 'Inbox', icon: '💡', hint: '' },
-  { key: 'clips', label: '剪藏', icon: '📥', hint: '' },
-  { key: 'docs', label: '文档', icon: '📝', hint: '' },
-  { key: 'knowledge', label: '团队', icon: '👥', hint: '' },
-  { key: 'reports', label: '报告', icon: '📊', hint: '' },
-  { key: 'canvas', label: '画布', icon: '🎨', hint: '' },
-  { key: 'settings', label: '设置', icon: '⚙️', hint: '' },
+const NAV: { key: NavKey; label: string; icon: ReactNode; hint: string }[] = [
+  { key: 'today', label: '今日', icon: <IconSun size={16} />, hint: '' },
+  { key: 'assistant', label: 'AI 助手', icon: <IconBot size={16} />, hint: '' },
+  { key: 'calendar', label: '日历', icon: <IconCalendarNav size={16} />, hint: '' },
+  { key: 'timeline', label: '全景', icon: <IconMap size={16} />, hint: '' },
+  { key: 'tasks', label: '全部任务', icon: <IconClipboardList size={16} />, hint: '' },
+  { key: 'follow', label: '跟进', icon: <IconMessage size={16} />, hint: '' },
+  { key: 'inbox', label: 'Inbox', icon: <IconLightbulb size={16} />, hint: '' },
+  { key: 'clips', label: '剪藏', icon: <IconPaperclip size={16} />, hint: '' },
+  { key: 'docs', label: '文档', icon: <IconFile size={16} />, hint: '' },
+  { key: 'knowledge', label: '团队', icon: <IconUsers size={16} />, hint: '' },
+  { key: 'reports', label: '报告', icon: <IconBarChart size={16} />, hint: '' },
+  { key: 'canvas', label: '画布', icon: <IconPalette size={16} />, hint: '' },
+  { key: 'settings', label: '设置', icon: <IconSettings size={16} />, hint: '' },
 ];
 
 export default function App() {
@@ -38,6 +43,8 @@ export default function App() {
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
   // 后端就绪门：0=检查中 1=就绪 2=超时（避免后端启动慢时各页直接报"后端连接失败"）
   const [backendState, setBackendState] = useState<0 | 1 | 2>(0);
+  const [authState, setAuthState] = useState<'checking' | 'login' | 'ready'>('checking');
+  const [authUser, setAuthUser] = useState(() => currentAuthUser());
   // 一键双端同步（M21）：idle=空闲 syncing=请求中 restarting=后端重启应用远端数据
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'restarting'>('idle');
   const [syncMsg, setSyncMsg] = useState('');
@@ -86,6 +93,16 @@ export default function App() {
     window.addEventListener('app-nav', onNav);
     return () => window.removeEventListener('app-nav', onNav);
   }, []);
+
+  useEffect(() => {
+    if (backendState !== 1 || authState !== 'checking') return;
+    api.me()
+      .then((user) => {
+        setAuthUser(user);
+        setAuthState('ready');
+      })
+      .catch(() => setAuthState('login'));
+  }, [backendState, authState]);
 
   useEffect(() => {
     if (backendState === 1) return;
@@ -140,9 +157,15 @@ export default function App() {
   }, [toasts]);
 
   const current = NAV.find((n) => n.key === nav)!;
+  const logout = async () => {
+    try { await api.logout(localStorage.getItem('auth-refresh-token')); } catch { /* token 可能已过期 */ }
+    clearAuthSession();
+    setAuthUser(null);
+    setAuthState('login');
+  };
 
   // 后端未就绪：显示启动画面（页面在后端起来后再挂载，天然避免连接失败报错）
-  if (backendState !== 1) {
+  if (backendState !== 1 || authState === 'checking') {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-100 text-slate-500 gap-3">
         {backendState === 0 ? (
@@ -167,6 +190,17 @@ export default function App() {
     );
   }
 
+  if (authState === 'login') {
+    return (
+      <AuthPage
+        onLoggedIn={() => {
+          setAuthUser(currentAuthUser());
+          setAuthState('ready');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app-root h-screen w-screen flex bg-slate-100 text-slate-800 overflow-hidden relative">
       <BackgroundLayer />
@@ -176,10 +210,15 @@ export default function App() {
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold tracking-tight">Remainder</h1>
             <button
+              onClick={logout}
+              title={`退出 ${authUser?.username ?? ''}`}
+              className="w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50"
+            >↪</button>
+            <button
               onClick={doSync}
               disabled={syncState !== 'idle'}
               title="双端同步：提交本地改动并拉取另一端数据"
-              className="w-7 h-7 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:cursor-default flex items-center justify-center transition-colors"
+              className="w-7 h-7 rounded-md text-[var(--text-3)] hover:text-[var(--brand)] hover:bg-[var(--brand-light)] disabled:cursor-default flex items-center justify-center transition-colors"
             >
               <span className={`text-sm leading-none ${syncState !== 'idle' ? 'inline-block animate-spin' : ''}`}>
                 ⟳
@@ -199,16 +238,16 @@ export default function App() {
               onClick={() => setNav(n.key)}
               className={`w-full text-left px-5 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
                 nav === n.key
-                  ? 'bg-indigo-50 text-indigo-700 font-medium border-r-2 border-indigo-500'
-                  : 'text-slate-600 hover:bg-slate-50'
+                  ? 'bg-[var(--brand-light)] text-[var(--brand)] font-medium'
+                  : 'text-[var(--text-2)] hover:bg-[var(--bg-2)]'
               }`}
             >
-              <span>{n.icon}</span>
+              <span className="flex items-center">{n.icon}</span>
               <span>{n.label}</span>
             </button>
           ))}
         </nav>
-        <div className="px-5 py-3 text-[10px] text-slate-300">v0.2.6 · 本地数据</div>
+        <div className="px-5 py-3 text-[10px] text-slate-300">v0.2.6 · {authUser?.username ?? '本地模式'}</div>
       </aside>
 
       {/* 内容区 */}

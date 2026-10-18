@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { Dropdown } from './Dropdown'
-import { ToolbarBtn, ColorPanel } from './ToolbarBtns'
+import { ToolbarBtn, FontColorPanel, HighlightPanel } from './ToolbarBtns'
 import { LinkEditor } from './LinkEditor'
 import { TextStyleMenu } from './TextStyleMenu'
 import { keyHint } from './shortcuts'
@@ -132,11 +132,24 @@ export function BubbleToolbar({ editor }: { editor: Editor }) {
 
       <span className="fe-tool-sep" />
 
-      {/* 颜色（字体 + 背景合并） */}
+      {/* 字体颜色 / 背景填充（M40 拆分：独立按钮 + 各自面板 + 当前色条） */}
       <Dropdown button={({ open }) => (
-        <ToolbarBtn icon={<I.IconFontColor size={15} />} tip={`颜色 ${keyHint('⌘⌥H', 'Ctrl+Alt+H')}`} on={open} />
+        <ToolbarBtn
+          icon={<span className="fe-color-btn"><I.IconFontColor size={14} /><span className="fe-color-bar" style={{ background: editor.getAttributes('textStyle').color || 'var(--text-1)' }} /><I.IconChevronDown size={8} className="fe-color-arrow" /></span>}
+          tip={`字体颜色 ${keyHint('⌘⌥H', 'Ctrl+Alt+H')}`}
+          on={open}
+        />
       )}>
-        {(_close) => <ColorPanel editor={editor} onChange={force} />}
+        {(_close) => <FontColorPanel editor={editor} onChange={force} />}
+      </Dropdown>
+      <Dropdown button={({ open }) => (
+        <ToolbarBtn
+          icon={<span className="fe-color-btn"><I.IconHighlight size={14} /><span className="fe-color-bar" style={{ background: editor.getAttributes('highlight').color || 'var(--text-4)' }} /><I.IconChevronDown size={8} className="fe-color-arrow" /></span>}
+          tip="背景填充"
+          on={open || editor.isActive('highlight')}
+        />
+      )}>
+        {(_close) => <HighlightPanel editor={editor} onChange={force} />}
       </Dropdown>
 
       <Dropdown width={264} button={({ open }) => (

@@ -3,7 +3,7 @@ import { api, TYPE_LABEL, type Task, type TaskType } from '../api/client';
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 const CHIP_STYLE: Record<TaskType, string> = {
-  main: 'bg-indigo-100 text-indigo-700',
+  main: 'bg-[var(--brand-light)] text-[var(--brand)]',
   side: 'bg-emerald-100 text-emerald-700',
   follow: 'bg-amber-100 text-amber-700',
   idea: 'bg-purple-100 text-purple-700',
@@ -103,12 +103,12 @@ export default function CalendarPage() {
                 key={c.date}
                 className={`rounded-lg border p-1.5 overflow-hidden flex flex-col ${
                   c.inMonth ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100'
-                } ${c.date === todayStr ? 'ring-2 ring-indigo-400' : ''}`}
+                } ${c.date === todayStr ? 'ring-2 ring-[var(--brand)]' : ''}`}
               >
                 <div className={`text-xs mb-1 flex items-center justify-between ${
                   c.inMonth ? 'text-slate-600' : 'text-slate-300'
                 }`}>
-                  <span className={c.date === todayStr ? 'font-bold text-indigo-600' : ''}>{c.day}</span>
+                  <span className={c.date === todayStr ? 'font-bold text-[var(--brand)]' : ''}>{c.day}</span>
                   {isOverdue && <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="有逾期" />}
                 </div>
                 <div className="space-y-0.5 overflow-hidden">

@@ -99,7 +99,7 @@ export default function CanvasPage() {
           <h2 className="font-semibold text-sm">调研画布</h2>
           <button
             onClick={createBoard}
-            className="text-xs rounded-md bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700"
+            className="text-xs rounded-md bg-[var(--brand)] text-white px-2.5 py-1.5 hover:bg-[var(--brand-hover)]"
           >
             新建
           </button>
@@ -112,7 +112,7 @@ export default function CanvasPage() {
               onClick={() => loadBoard(b.id)}
               className={`mx-2 mb-1 rounded-lg px-3 py-2 cursor-pointer flex items-center justify-between ${
                 currentBoard?.id === b.id
-                  ? 'bg-indigo-50 text-indigo-700'
+                  ? 'bg-[var(--brand-light)] text-[var(--brand)]'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -438,7 +438,7 @@ function CanvasBoard({ board, onRefresh }: { board: CanvasBoardWithItems; onRefr
                   href={item.source_url}
                   target="_blank"
                   rel="noopener"
-                  className="absolute bottom-1 left-1 text-[10px] text-indigo-400 hover:underline bg-white/80 rounded px-1"
+                  className="absolute bottom-1 left-1 text-[10px] text-[rgba(51,112,255,0.6)] hover:underline bg-white/80 rounded px-1"
                   onClick={(e) => e.stopPropagation()}
                 >
                   来源
@@ -477,7 +477,7 @@ function CardToolbar({ editor, onDone }: { editor: Editor; onDone: () => void })
   // 按钮 onMouseDown preventDefault：保持编辑器选区不丢失
   const hold = (e: React.MouseEvent) => e.preventDefault();
   const btn = (active: boolean) =>
-    `px-1.5 py-0.5 rounded text-[11px] ${active ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-slate-100 text-slate-600'}`;
+    `px-1.5 py-0.5 rounded text-[11px] ${active ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'hover:bg-slate-100 text-slate-600'}`;
 
   return (
     <div className="flex items-center gap-1 flex-wrap px-1.5 py-1 border-b border-slate-100 bg-slate-50/80 shrink-0">
@@ -541,7 +541,7 @@ function CardToolbar({ editor, onDone }: { editor: Editor; onDone: () => void })
         🧽
       </button>
       <span className="flex-1" />
-      <button onMouseDown={hold} onClick={onDone} className="px-1.5 py-0.5 rounded text-[11px] bg-indigo-500 text-white hover:bg-indigo-600" title="保存（Ctrl+Enter）">
+      <button onMouseDown={hold} onClick={onDone} className="px-1.5 py-0.5 rounded text-[11px] bg-[var(--brand)] text-white hover:bg-[var(--brand)]" title="保存（Ctrl+Enter）">
         ✓ 完成
       </button>
     </div>

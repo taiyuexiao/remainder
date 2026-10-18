@@ -64,9 +64,14 @@ function PetSection() {
   };
 
   const showPet = async () => {
-    const { getAllWindows } = await import('@tauri-apps/api/window');
-    const pet = (await getAllWindows()).find((w) => w.label === 'pet');
-    if (pet) await pet.show();
+    try {
+      // M41：唤回改为 Rust 侧销毁重建 pet 窗口（前端 show() 对隐藏过的透明窗口不可靠）；
+      // 桌宠默认不随启动打开（config visible:false），由本按钮按需创建
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('show_pet');
+    } catch (e) {
+      alert(`唤回桌宠失败：${(e as Error).message}`);
+    }
   };
 
   return (
@@ -203,7 +208,7 @@ function LlmSection({
         <button
           onClick={() => commit('llm_enabled', enabled ? 'false' : 'true')}
           className={`w-12 h-6 rounded-full transition-colors relative ${
-            enabled ? 'bg-indigo-600' : 'bg-slate-300'
+            enabled ? 'bg-[var(--brand)]' : 'bg-slate-300'
           }`}
         >
           <span
@@ -317,7 +322,7 @@ function NetworkSection() {
       <div className="flex items-center gap-2">
         <button
           onClick={save}
-          className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700"
+          className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)]"
         >
           保存
         </button>
@@ -396,7 +401,7 @@ function PersonalizeSection() {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          className="rounded-lg bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-700 disabled:opacity-40"
+          className="rounded-lg bg-[var(--brand)] text-white text-xs px-3 py-1.5 hover:bg-[var(--brand-hover)] disabled:opacity-40"
         >
           {uploading ? '上传中…' : hasImage ? '更换图片' : '上传背景图'}
         </button>
@@ -404,7 +409,7 @@ function PersonalizeSection() {
           <>
             <button
               onClick={() => update({ enabled: !cfg.enabled })}
-              className={`rounded-lg text-xs px-3 py-1.5 ${cfg.enabled ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}
+              className={`rounded-lg text-xs px-3 py-1.5 ${cfg.enabled ? 'bg-[var(--brand-light)] text-[var(--brand)]' : 'bg-slate-100 text-slate-500'}`}
             >
               {cfg.enabled ? '背景已启用 ✓' : '背景已停用'}
             </button>
@@ -429,20 +434,20 @@ function PersonalizeSection() {
               type="range" min={60} max={95}
               value={Math.round(cfg.scrim * 100)}
               onChange={(e) => update({ scrim: Number(e.target.value) / 100 })}
-              className="mt-1 w-full accent-indigo-600"
+              className="mt-1 w-full accent-[var(--brand)]"
             />
           </label>
           <div className="flex gap-2 items-center text-xs text-slate-500">
             <span>遮罩颜色</span>
             <button
               onClick={() => update({ scrimDark: false })}
-              className={`rounded-lg px-2.5 py-1 ${!cfg.scrimDark ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}
+              className={`rounded-lg px-2.5 py-1 ${!cfg.scrimDark ? 'bg-[var(--brand)] text-white' : 'bg-slate-100 text-slate-500'}`}
             >
               白纱布（浅色图）
             </button>
             <button
               onClick={() => update({ scrimDark: true })}
-              className={`rounded-lg px-2.5 py-1 ${cfg.scrimDark ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}
+              className={`rounded-lg px-2.5 py-1 ${cfg.scrimDark ? 'bg-[var(--brand)] text-white' : 'bg-slate-100 text-slate-500'}`}
             >
               黑纱布（深色图）
             </button>
@@ -453,7 +458,7 @@ function PersonalizeSection() {
               type="range" min={0} max={60}
               value={Math.round(cfg.dim * 100)}
               onChange={(e) => update({ dim: Number(e.target.value) / 100 })}
-              className="mt-1 w-full accent-indigo-600"
+              className="mt-1 w-full accent-[var(--brand)]"
             />
           </label>
           <label className="block text-xs text-slate-500">
@@ -462,7 +467,7 @@ function PersonalizeSection() {
               type="range" min={0} max={100}
               value={Math.round(cfg.grey * 100)}
               onChange={(e) => update({ grey: Number(e.target.value) / 100 })}
-              className="mt-1 w-full accent-indigo-600"
+              className="mt-1 w-full accent-[var(--brand)]"
             />
           </label>
           <label className="block text-xs text-slate-500">
@@ -471,7 +476,7 @@ function PersonalizeSection() {
               type="range" min={0} max={20}
               value={cfg.blur}
               onChange={(e) => update({ blur: Number(e.target.value) })}
-              className="mt-1 w-full accent-indigo-600"
+              className="mt-1 w-full accent-[var(--brand)]"
             />
           </label>
           <label className="block text-xs text-slate-500">
@@ -539,7 +544,7 @@ export default function SettingsPage() {
               {isBool ? (
                 <button
                   onClick={() => toggle(k.key)}
-                  className={`w-12 h-6 rounded-full transition-colors relative ${value === 'true' ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                  className={`w-12 h-6 rounded-full transition-colors relative ${value === 'true' ? 'bg-[var(--brand)]' : 'bg-slate-300'}`}
                 >
                   <span
                     className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${

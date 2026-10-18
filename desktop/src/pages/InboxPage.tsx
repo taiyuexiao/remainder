@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type InboxItem, type Project, type TaskType } from '../api/client';
+import { useImeGuard } from '../ime';
+import { IconClose, IconPencil, IconPlus } from '../components/NavIcons';
 
 export default function InboxPage() {
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [content, setContent] = useState('');
@@ -105,63 +108,91 @@ export default function InboxPage() {
         </div>
         <button
           onClick={openNew}
-          className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 shadow-sm"
+          className="rounded-lg bg-[var(--brand)] text-white px-4 py-2 text-sm font-medium hover:bg-[var(--brand-hover)] shadow-sm"
         >
           ＋ 新建速记
         </button>
       </header>
 
-      {/* 新建速记弹窗 */}
+      {/* 新建 / 编辑速记弹窗（M41 重做：大尺寸 + fe 设计语言） */}
       {showNew && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center"
-          onClick={() => setShowNew(false)}
+          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-6"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowNew(false); }}
         >
           <div
-            className="w-[480px] rounded-2xl bg-white shadow-2xl p-5"
-            onClick={(e) => e.stopPropagation()}
+            className="w-[640px] max-w-full rounded-xl bg-white shadow-2xl overflow-hidden"
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold text-slate-800 mb-3">
-              {editItem ? '✏️ 编辑速记' : '💡 新建速记'}
-            </h3>
-            <textarea
-              autoFocus
-              rows={4}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              placeholder="有什么想法？写下来…（Ctrl+Enter 存入）"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={(e) => {
-                // macOS 中文输入法：组词期间的回车是确认候选词，不能触发提交
-                if (e.nativeEvent.isComposing) return;
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) add();
-                if (e.key === 'Escape') setShowNew(false);
-              }}
-            />
-            <input
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              placeholder="标签（可选，逗号分隔）"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
-                if (e.key === 'Enter') add();
-              }}
-            />
-            <div className="mt-4 flex justify-end gap-2">
+            {/* 标题栏 */}
+            <div className="px-5 py-3 border-b border-[var(--border-light)] flex items-center gap-2.5">
+              <span className="w-7 h-7 rounded-md bg-[var(--brand-light)] text-[var(--brand)] flex items-center justify-center shrink-0">
+                {editItem ? <IconPencil size={14} /> : <IconPlus size={14} />}
+              </span>
+              <h3 className="text-sm font-semibold text-[var(--text-1)]">
+                {editItem ? '编辑速记' : '新建速记'}
+              </h3>
+              <span className="flex-1" />
               <button
                 onClick={() => setShowNew(false)}
-                className="rounded-lg px-4 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+                className="w-6 h-6 rounded text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--bg-2)] flex items-center justify-center"
+                title="关闭"
               >
-                取消
+                <IconClose size={14} />
               </button>
-              <button
-                onClick={add}
-                disabled={!content.trim()}
-                className="rounded-lg bg-indigo-600 text-white px-4 py-1.5 text-sm hover:bg-indigo-700 disabled:opacity-40"
-              >
-                {editItem ? '保存修改' : '存入 Inbox'}
-              </button>
+            </div>
+
+            {/* 正文 + 标签 */}
+            <div className="px-5 py-4">
+              <textarea
+                autoFocus
+                rows={12}
+                className="w-full rounded-lg border border-[var(--border)] px-3.5 py-3 text-sm leading-relaxed resize-y focus:outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-[rgba(51,112,255,0.15)] text-[var(--text-1)]"
+                placeholder="有什么想法？写下来…（Ctrl / ⌘ + Enter 保存，Esc 关闭）"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                {...imeProps}
+                onKeyDown={(e) => {
+                  // macOS 中文输入法：确认候选词的回车不触发提交（含 WebKit compositionend 先发的特例）
+                  if (imeGuard(e)) return;
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) add();
+                  if (e.key === 'Escape') setShowNew(false);
+                }}
+              />
+              <div className="mt-3 flex items-center gap-2.5">
+                <span className="text-xs text-[var(--text-3)] shrink-0">标签</span>
+                <input
+                  className="flex-1 h-8 rounded-md border border-[var(--border)] px-2.5 text-xs focus:outline-none focus:border-[var(--brand)] text-[var(--text-1)]"
+                  placeholder="可选，逗号分隔，如：方案,待确认"
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  {...imeProps}
+                  onKeyDown={(e) => {
+                    if (imeGuard(e)) return;
+                    if (e.key === 'Enter') add();
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 底栏 */}
+            <div className="px-5 py-3 border-t border-[var(--border-light)] flex items-center justify-between">
+              <span className="text-[11px] text-[var(--text-4)]">Ctrl / ⌘ + Enter 快速保存</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowNew(false)}
+                  className="h-7 px-3 text-xs rounded-md border border-[var(--border)] text-[var(--text-1)] hover:bg-[var(--bg-2)]"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={add}
+                  disabled={!content.trim()}
+                  className="h-7 px-3.5 text-xs rounded-md bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)] disabled:opacity-40"
+                >
+                  {editItem ? '保存修改' : '存入 Inbox'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -174,7 +205,7 @@ export default function InboxPage() {
           items.map((it) => (
             <div key={it.id} className="rounded-xl bg-white border border-slate-200 p-4">
               <p
-                className="text-sm text-slate-800 cursor-pointer hover:text-indigo-700 whitespace-pre-wrap"
+                className="text-sm text-slate-800 cursor-pointer hover:text-[var(--brand)] whitespace-pre-wrap"
                 onClick={() => openEdit(it)}
                 title="点击打开编辑"
               >
@@ -191,7 +222,7 @@ export default function InboxPage() {
                 </button>
                 <button
                   onClick={() => { setConvertId(it.id); setConvertProjectId(''); }}
-                  className="text-indigo-600 hover:underline"
+                  className="text-[var(--brand)] hover:underline"
                 >
                   转为任务
                 </button>

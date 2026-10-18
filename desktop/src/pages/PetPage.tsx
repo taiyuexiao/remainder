@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow, getAllWindows, LogicalSize, LogicalPosition, PhysicalPosition, currentMonitor } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api/client';
+import { useImeGuard } from '../ime';
 import { createSpriteRenderer } from '../pet/renderers/sprite';
 import { createLive2DRenderer } from '../pet/renderers/live2d';
 import { PET_MODE_KEY, PET_MODEL_KEY, type PetMode, type PetRenderer } from '../pet/renderers/types';
@@ -26,6 +27,7 @@ const isTauri = '__TAURI_INTERNALS__' in window;
 
 export default function PetPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
   const [bubble, setBubble] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [blush, setBlush] = useState(false);
@@ -328,7 +330,7 @@ export default function PetPage() {
             {msgs.length === 0 && <p className="text-[10px] text-slate-400">说点什么吧…</p>}
             {msgs.map((m, i) => (
               <div key={i} className={`text-[11px] leading-relaxed ${m.from === 'me' ? 'text-right' : ''}`}>
-                <span className={`inline-block rounded-xl px-2.5 py-1 ${m.from === 'me' ? 'bg-indigo-500 text-white' : 'bg-pink-50 text-slate-700'}`}>
+                <span className={`inline-block rounded-xl px-2.5 py-1 ${m.from === 'me' ? 'bg-[var(--brand)] text-white' : 'bg-pink-50 text-slate-700'}`}>
                   {m.text}
                 </span>
               </div>
@@ -342,7 +344,11 @@ export default function PetPage() {
               placeholder="输入消息…"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+              {...imeProps}
+              onKeyDown={(e) => {
+                if (imeGuard(e)) return;
+                if (e.key === 'Enter') sendChat();
+              }}
             />
             <button onClick={sendChat} className="rounded-lg bg-pink-400 text-white px-2.5 text-[11px] hover:bg-pink-500">
               发送

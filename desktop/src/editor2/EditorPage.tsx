@@ -294,11 +294,7 @@ export default function EditorPage({ docId, onBack }: { docId: string; onBack: (
         </div>
 
         <div className="fe-topbar-right">
-          <div className="fe-avatar-group" title="协作者">
-            <span className="fe-avatar fe-avatar-sm" style={{ background: 'linear-gradient(135deg,#3370FF,#7F3BF5)' }}>我</span>
-            <span className="fe-avatar fe-avatar-sm" style={{ background: 'linear-gradient(135deg,#FF8800,#F54A45)' }}>张</span>
-            <span className="fe-avatar fe-avatar-sm" style={{ background: 'linear-gradient(135deg,#34A853,#3370FF)' }}>李</span>
-          </div>
+          {/* M41：移除模拟多人协作的固定头像（暂无多人编辑，不再占位挤压顶栏） */}
 
           {/* 评论入口 */}
           <button className={`fe-topbar-icon-btn ${commentsOpen ? 'on' : ''}`} title="评论" onClick={() => setCommentsOpen((v) => !v)}>

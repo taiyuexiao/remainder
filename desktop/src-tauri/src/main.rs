@@ -141,6 +141,47 @@ fn read_clipboard_html() -> Option<String> {
     }
 }
 
+/// M41：唤回桌宠——销毁旧窗口并按 tauri.conf 的 pet 配置原地重建。
+/// 前端 show() 对隐藏过的透明窗口不可靠（原空间/原位置/渲染问题），重建是唯一稳妥路径。
+/// 桌宠默认不随启动打开（config visible:false），此命令负责按需创建。
+#[tauri::command]
+fn show_pet(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "pet")
+        .cloned()
+        .ok_or_else(|| "pet config not found".to_string())?;
+    if let Some(pet) = app.get_webview_window("pet") {
+        let _ = pet.destroy();
+    }
+    // destroy 是异步落到主循环的，稍等让出 label 再重建
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let built = tauri::webview::WebviewWindowBuilder::from_config(&app, &cfg)
+            .and_then(|b| b.visible(true).build())
+            .map_err(|e| e.to_string());
+        match built {
+            Ok(win) => {
+                if let Ok(Some(monitor)) = win.current_monitor() {
+                    let scale = monitor.scale_factor();
+                    let lw = monitor.size().width as f64 / scale;
+                    let lh = monitor.size().height as f64 / scale;
+                    let _ = win.set_position(tauri::Position::Logical(
+                        tauri::LogicalPosition::new(lw - 140.0 - 30.0, lh - 200.0 - 60.0),
+                    ));
+                }
+                let _ = win.set_focus();
+            }
+            Err(e) => eprintln!("show_pet rebuild failed: {e}"),
+        }
+    });
+    Ok(())
+}
+
 /// 唤出主窗口；已被红色叉号销毁（macOS 关窗不退出）则原地重建。
 /// 单实例回调与 macOS 程序坞点击（RunEvent::Reopen）共用。
 fn open_or_rebuild_main(app: &tauri::AppHandle) {
@@ -191,7 +232,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             open_or_rebuild_main(app);
         }))
-        .invoke_handler(tauri::generate_handler![read_clipboard_html])
+        .invoke_handler(tauri::generate_handler![read_clipboard_html, show_pet])
         .plugin(shortcut_plugin)
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {

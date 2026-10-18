@@ -8,10 +8,11 @@ import {
   type Task,
   type TaskStatus,
 } from '../api/client';
+import { useImeGuard } from '../ime';
 
 const COLUMN_ORDER: ProjectType[] = ['main', 'side', 'follow'];
 const COLUMN_STYLE: Record<ProjectType, string> = {
-  main: 'bg-indigo-100 text-indigo-700',
+  main: 'bg-[var(--brand-light)] text-[var(--brand)]',
   side: 'bg-emerald-100 text-emerald-700',
   follow: 'bg-amber-100 text-amber-700',
 };
@@ -168,6 +169,7 @@ function ProjectColumn({
   const [priority, setPriority] = useState(2);
   const [person, setPerson] = useState('');
   const [nextFollowDate, setNextFollowDate] = useState('');
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
 
   const create = async () => {
     if (!name.trim()) return;
@@ -188,7 +190,7 @@ function ProjectColumn({
     }
   };
 
-  const inputCls = 'rounded-lg border border-slate-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300';
+  const inputCls = 'rounded-lg border border-slate-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[rgba(51,112,255,0.35)]';
 
   return (
     <div>
@@ -198,7 +200,7 @@ function ProjectColumn({
         </h3>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="text-xs text-indigo-600 hover:underline"
+          className="text-xs text-[var(--brand)] hover:underline"
         >
           + 新建项目
         </button>
@@ -213,7 +215,11 @@ function ProjectColumn({
               placeholder={`新${TYPE_LABEL[type]}项目名称，回车创建`}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && create()}
+              {...imeProps}
+              onKeyDown={(e) => {
+                if (imeGuard(e)) return;
+                if (e.key === 'Enter') create();
+              }}
             />
             <input type="date" className={inputCls} value={ddl} onChange={(e) => setDdl(e.target.value)} />
             <select className={inputCls} value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
@@ -221,7 +227,7 @@ function ProjectColumn({
               <option value={2}>P2</option>
               <option value={3}>P3</option>
             </select>
-            <button onClick={create} className="rounded-lg bg-indigo-600 text-white px-3 py-1 text-sm hover:bg-indigo-700">
+            <button onClick={create} className="rounded-lg bg-[var(--brand)] text-white px-3 py-1 text-sm hover:bg-[var(--brand-hover)]">
               创建
             </button>
           </div>
@@ -286,6 +292,7 @@ function ProjectFolder({
   onChanged: () => void;
 }) {
   const [newSub, setNewSub] = useState('');
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
   const overdue = p.ddl != null && p.ddl.slice(0, 10) < todayStr() && p.status !== 'done';
   const isSelected = selected?.kind === 'project' && selected.id === p.id;
 
@@ -309,7 +316,7 @@ function ProjectFolder({
         onClick={() => { onSelect({ kind: 'project', id: p.id }); onToggleExpand(); }}
         className={`flex items-center gap-2.5 rounded-lg px-3 py-2 cursor-pointer border transition-colors ${
           isSelected
-            ? 'bg-white border-indigo-300 shadow-sm'
+            ? 'bg-white border-[var(--brand)] shadow-sm'
             : 'bg-white/60 border-transparent hover:bg-white'
         }`}
       >
@@ -323,7 +330,7 @@ function ProjectFolder({
               ? api.projects.update(p.id, { status: 'todo' }).then(onChanged)
               : api.projects.done(p.id).then(onChanged)
           }
-          className="accent-indigo-600"
+          className="accent-[var(--brand)]"
         />
         <button
           onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
@@ -375,7 +382,7 @@ function ProjectFolder({
               onClick={() => onSelect({ kind: 'task', id: t.id })}
               className={`flex items-center gap-3 rounded-lg px-3 py-1.5 cursor-pointer border transition-colors ${
                 selected?.kind === 'task' && selected.id === t.id
-                  ? 'bg-white border-indigo-300 shadow-sm'
+                  ? 'bg-white border-[var(--brand)] shadow-sm'
                   : 'bg-white/50 border-transparent hover:bg-white'
               }`}
             >
@@ -388,7 +395,7 @@ function ProjectFolder({
                     ? api.updateTask(t.id, { status: 'todo' }).then(onChanged)
                     : api.doneTask(t.id).then(onChanged)
                 }
-                className="accent-indigo-600"
+                className="accent-[var(--brand)]"
               />
               <span className={`flex-1 text-sm truncate ${t.status === 'done' ? 'line-through text-slate-400' : ''}`}>
                 {t.title}
@@ -398,11 +405,15 @@ function ProjectFolder({
             </div>
           ))}
           <input
-            className="w-full rounded-lg border border-dashed border-slate-300 bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="w-full rounded-lg border border-dashed border-slate-300 bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[rgba(51,112,255,0.35)]"
             placeholder="+ 添加子任务，回车创建"
             value={newSub}
             onChange={(e) => setNewSub(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addSubtask()}
+            {...imeProps}
+            onKeyDown={(e) => {
+              if (imeGuard(e)) return;
+              if (e.key === 'Enter') addSubtask();
+            }}
           />
         </div>
       )}
@@ -424,6 +435,7 @@ function IdeaSection({
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState('');
+  const { guard: imeGuard, compositionProps: imeProps } = useImeGuard();
 
   const add = async () => {
     if (!title.trim()) return;
@@ -444,7 +456,7 @@ function IdeaSection({
             onClick={() => onSelect({ kind: 'task', id: t.id })}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer border transition-colors ${
               selected?.kind === 'task' && selected.id === t.id
-                ? 'bg-white border-indigo-300 shadow-sm'
+                ? 'bg-white border-[var(--brand)] shadow-sm'
                 : 'bg-white/60 border-transparent hover:bg-white'
             }`}
           >
@@ -471,7 +483,11 @@ function IdeaSection({
           placeholder="+ 记录想法，回车创建"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
+          {...imeProps}
+          onKeyDown={(e) => {
+            if (imeGuard(e)) return;
+            if (e.key === 'Enter') add();
+          }}
         />
       </div>
     </div>
@@ -480,7 +496,7 @@ function IdeaSection({
 
 /* ---------------- 右侧详情：项目 ---------------- */
 
-const field = 'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300';
+const field = 'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[rgba(51,112,255,0.35)]';
 
 function ProjectDetail({
   project,
@@ -606,7 +622,7 @@ function ProjectDetail({
       <div className="flex gap-2 pt-1">
         <button
           onClick={save}
-          className="flex-1 rounded-lg bg-indigo-600 text-white py-1.5 text-sm hover:bg-indigo-700"
+          className="flex-1 rounded-lg bg-[var(--brand)] text-white py-1.5 text-sm hover:bg-[var(--brand-hover)]"
         >
           保存
         </button>
@@ -727,7 +743,7 @@ function TaskDetail({
       <div className="flex gap-2 pt-1">
         <button
           onClick={save}
-          className="flex-1 rounded-lg bg-indigo-600 text-white py-1.5 text-sm hover:bg-indigo-700"
+          className="flex-1 rounded-lg bg-[var(--brand)] text-white py-1.5 text-sm hover:bg-[var(--brand-hover)]"
         >
           保存
         </button>

@@ -78,7 +78,7 @@ export default function TimelinePage() {
             key={z}
             onClick={() => setZoom(z)}
             className={`px-3 py-1 rounded-md transition-colors ${
-              zoom === z ? 'bg-white shadow-sm text-indigo-600 font-medium' : 'text-slate-500 hover:text-slate-700'
+              zoom === z ? 'bg-white shadow-sm text-[var(--brand)] font-medium' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {z === 'week' ? '周' : z === 'month' ? '月' : '季'}
@@ -119,7 +119,7 @@ export default function TimelinePage() {
       ) : (
         <button
           onClick={() => setFullscreen(true)}
-          className="rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-xs hover:bg-indigo-700 shadow-sm"
+          className="rounded-lg bg-[var(--brand)] text-white px-3 py-1.5 text-xs hover:bg-[var(--brand-hover)] shadow-sm"
           title="全屏沉浸查看"
         >
           ⛶ 全景模式
@@ -245,7 +245,7 @@ function TimelineChart({
                 <div
                   key={p.id}
                   className={`flex flex-col justify-center px-4 gap-1 transition-colors ${
-                    hoverRow === i ? 'bg-indigo-50/60' : i % 2 ? 'bg-slate-50/60' : ''
+                    hoverRow === i ? 'bg-[var(--brand-light)]/60' : i % 2 ? 'bg-slate-50/60' : ''
                   }`}
                   style={{ height: rowH }}
                   onMouseEnter={() => setHoverRow(i)}

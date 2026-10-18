@@ -23,7 +23,7 @@ function Section({
               type="checkbox"
               checked={t.status === 'done'}
               onChange={() => onToggle(t)}
-              className="accent-indigo-600"
+              className="accent-[var(--brand)]"
             />
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
               {TYPE_LABEL[t.type]}
